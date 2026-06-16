@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="420" viewBox="0 0 720 420">
+  <defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#0891b2"/><stop offset="1" stop-color="#5b6cff"/></linearGradient></defs>
+  <rect width="720" height="420" rx="28" fill="url(#g)"/>
+  <g fill="rgba(255,255,255,.18)" stroke="rgba(255,255,255,.55)" stroke-width="3">
+    <rect x="72" y="132" width="126" height="94" rx="18"/>
+    <rect x="232" y="132" width="126" height="94" rx="18"/>
+    <rect x="392" y="132" width="126" height="94" rx="18"/>
+    <rect x="552" y="132" width="96" height="94" rx="18"/>
+  </g>
+  <path d="M205 179h20M365 179h20M525 179h20" stroke="#fff" stroke-width="8" stroke-linecap="round"/>
+  <text x="64" y="88" fill="white" font-family="Arial, sans-serif" font-size="34" font-weight="800">Interview Flow</text>
+  <text x="78" y="268" fill="white" font-family="Arial, sans-serif" font-size="23">背景 - 经历 - 兴趣 - 匹配</text>
+</svg>

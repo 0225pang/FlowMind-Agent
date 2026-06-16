@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="420" viewBox="0 0 720 420">
+  <defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#ea580c"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs>
+  <rect width="720" height="420" rx="28" fill="url(#g)"/>
+  <rect x="94" y="80" width="532" height="278" rx="24" fill="rgba(255,255,255,.16)" stroke="rgba(255,255,255,.34)"/>
+  <g stroke="white" stroke-width="12" stroke-linecap="round">
+    <path d="M134 142l18 18 34-42"/><path d="M218 142h302"/>
+    <path d="M134 210l18 18 34-42"/><path d="M218 210h260"/>
+    <path d="M134 278l18 18 34-42"/><path d="M218 278h330"/>
+  </g>
+  <text x="64" y="388" fill="white" font-family="Arial, sans-serif" font-size="32" font-weight="800">Material Checklist</text>
+</svg>

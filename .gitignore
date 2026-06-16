@@ -1,0 +1,37 @@
+# FlowMind Agent — Git ignore
+
+# === Dependencies (本地仓库 / 私有仓库) ===
+node_modules/
+backend/.m2repo/
+
+# === Build outputs ===
+backend/**/target/
+backend/target/
+frontend/dist/
+
+# === IDE ===
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+
+# === OS ===
+.DS_Store
+Thumbs.db
+
+# === Secrets — 包含 API Key 的配置文件 ===
+backend/app-service/src/main/resources/application-deepseek.yml
+
+# === Runtime artifacts ===
+*.log
+pdf-downloads/
+flowmind_lark_auth_qr*.png
+
+# === Environment / Docker ===
+.env
+.env.local
+
+# === Binary JAR (not typically tracked) ===
+*.jar

@@ -1,0 +1,1 @@
+package com.flowmind.app;import org.springframework.boot.SpringApplication;import org.springframework.boot.autoconfigure.SpringBootApplication;@SpringBootApplication(scanBasePackages="com.flowmind") public class FlowMindApplication{public static void main(String[] args){SpringApplication.run(FlowMindApplication.class,args);}}

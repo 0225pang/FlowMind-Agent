@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="420" viewBox="0 0 720 420">
+  <defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#2563eb"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs>
+  <rect width="720" height="420" rx="28" fill="url(#g)"/>
+  <circle cx="590" cy="82" r="96" fill="rgba(255,255,255,.16)"/>
+  <circle cx="118" cy="335" r="124" fill="rgba(255,255,255,.12)"/>
+  <text x="56" y="92" fill="white" font-family="Arial, sans-serif" font-size="34" font-weight="700">FlowMind</text>
+  <text x="56" y="218" fill="white" font-family="Arial, sans-serif" font-size="54" font-weight="800">Resume</text>
+  <text x="60" y="286" fill="rgba(255,255,255,.82)" font-family="Arial, sans-serif" font-size="22">科研经历证据链</text>
+</svg>

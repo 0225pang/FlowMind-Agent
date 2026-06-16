@@ -1,0 +1,1 @@
+package com.flowmind.feishu;import org.springframework.stereotype.Component;import java.time.LocalDateTime;import java.util.Map;@Component public class FeishuMockClient{public Map<String,Object> sync(String type){return Map.of("type",type,"status","SUCCESS","message","Mock ?????????? Feishu OpenAPI Client ??","time",LocalDateTime.now().toString());}}

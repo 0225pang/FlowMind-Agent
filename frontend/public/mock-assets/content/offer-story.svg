@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="420" viewBox="0 0 720 420">
+  <defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#16a34a"/><stop offset="1" stop-color="#5b6cff"/></linearGradient></defs>
+  <rect width="720" height="420" rx="28" fill="url(#g)"/>
+  <circle cx="360" cy="190" r="96" fill="rgba(255,255,255,.18)"/>
+  <path d="M315 192l34 34 70-82" fill="none" stroke="white" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="64" y="92" fill="white" font-family="Arial, sans-serif" font-size="34" font-weight="800">Offer Story</text>
+  <text x="190" y="326" fill="white" font-family="Arial, sans-serif" font-size="25">结果背后的过程复盘</text>
+</svg>

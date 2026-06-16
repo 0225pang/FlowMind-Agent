@@ -1,0 +1,15 @@
+# DeepSeek API 配置模板
+# 复制此文件为 application-deepseek.yml，填入真实 api-key 后启动
+# 该文件由 .gitignore 保护，不会被提交到 Git
+
+flowmind:
+  llm:
+    provider: deepseek
+    base-url: https://api.deepseek.com
+    chat-path: /chat/completions
+    model: deepseek-v4-flash
+    api-key: PUT_YOUR_DEEPSEEK_API_TOKEN_HERE
+    temperature: 0.7
+    max-tokens: 4096
+    connect-timeout-seconds: 15
+    read-timeout-seconds: 120
