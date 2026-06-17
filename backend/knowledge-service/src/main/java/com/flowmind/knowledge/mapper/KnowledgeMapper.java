@@ -93,8 +93,8 @@ public class KnowledgeMapper {
         return docs.stream().findFirst();
     }
 
-    /** Update title/content/summary/feishu_modified_at for changed docs. Tags preserved. */
-    public void upsertChanged(KnowledgeDocEntity doc) {
+    /** Update title/content/summary/feishu_modified_at for changed docs. Tags preserved. Returns the up-to-date entity. */
+    public KnowledgeDocEntity upsertChanged(KnowledgeDocEntity doc) {
         long id = IdGenerator.nextId() + System.nanoTime() % 100000;
         try {
             jdbcTemplate.update("""
@@ -116,10 +116,11 @@ public class KnowledgeMapper {
                 """, doc.getTitle(), doc.getContent(), doc.getSummary(),
                 doc.getFeishuUrl(), doc.getFeishuType(), doc.getFeishuModifiedAt(),
                 doc.getFeishuToken());
+        return findByFeishuToken(doc.getFeishuToken()).orElse(doc);
     }
 
-    /** Insert only (for new docs), no update. Tags preserved if existing. */
-    public void insertIfAbsent(KnowledgeDocEntity doc) {
+    /** Insert only (for new docs), no update. Returns the entity with generated ID. */
+    public KnowledgeDocEntity insertIfAbsent(KnowledgeDocEntity doc) {
         long id = IdGenerator.nextId() + System.nanoTime() % 100000;
         try {
             jdbcTemplate.update("""
@@ -132,6 +133,7 @@ public class KnowledgeMapper {
         } catch (org.springframework.dao.DuplicateKeyException e) {
             // ok
         }
+        return findByFeishuToken(doc.getFeishuToken()).orElse(doc);
     }
 
     public void updateTags(Long id, String tags) {

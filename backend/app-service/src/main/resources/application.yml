@@ -41,6 +41,14 @@ flowmind:
       name: 保研知识库
       folder-token: KELsfW0jvlHcVqdiuTncQ66Lnnc
       url: https://ycn1ft0idflw.feishu.cn/drive/folder/KELsfW0jvlHcVqdiuTncQ66Lnnc
+  embedding:
+    provider: dashscope
+    api-key: sk-ws-H.REYXIEE.s9Gp.MEYCIQC91wjQTTwakFFenO7y9TXn-hv3T-k-AjsKG9vkLZ4FKQIhAMmICW8qdzRgvpbOJOcZXypXab0LpS5k_ZFHAi-iOVuG
+    model: text-embedding-v4
+  weaviate:
+    enabled: true
+    base-url: http://localhost:18080
+    scheme: http
 springdoc:
   swagger-ui:
     path: /swagger-ui.html

@@ -5,6 +5,9 @@ import com.flowmind.agent.llm.LLMClient;
 import com.flowmind.agent.service.LarkCliToolService;
 import com.flowmind.knowledge.entity.KnowledgeDocEntity;
 import com.flowmind.knowledge.mapper.KnowledgeMapper;
+import com.flowmind.knowledge.vector.EmbeddingService;
+import com.flowmind.knowledge.vector.TextChunker;
+import com.flowmind.knowledge.vector.WeaviateClientService;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
@@ -25,6 +28,8 @@ public class KnowledgeService {
     private final LarkCliToolService toolService;
     private final LLMClient llmClient;
     private final com.flowmind.knowledge.mapper.SyncLogMapper syncLogMapper;
+    private final EmbeddingService embeddingService;
+    private final WeaviateClientService weaviateClient;
 
     @Value("${flowmind.feishu.knowledge-base.folder-token:}")
     private String folderToken;
@@ -33,11 +38,14 @@ public class KnowledgeService {
     private String folderName;
 
     public KnowledgeService(KnowledgeMapper mapper, LarkCliToolService toolService, LLMClient llmClient,
-                            com.flowmind.knowledge.mapper.SyncLogMapper syncLogMapper) {
+                            com.flowmind.knowledge.mapper.SyncLogMapper syncLogMapper,
+                            EmbeddingService embeddingService, WeaviateClientService weaviateClient) {
         this.mapper = mapper;
         this.toolService = toolService;
         this.llmClient = llmClient;
         this.syncLogMapper = syncLogMapper;
+        this.embeddingService = embeddingService;
+        this.weaviateClient = weaviateClient;
     }
 
     // ── Query ──
@@ -145,12 +153,15 @@ public class KnowledgeService {
                     doc.setTags(existing.map(KnowledgeDocEntity::getTags).orElse("[]"));
 
                     if (isNew) {
-                        mapper.insertIfAbsent(doc);
+                        doc = mapper.insertIfAbsent(doc);
                         added++;
                     } else {
-                        mapper.upsertChanged(doc);
+                        doc = mapper.upsertChanged(doc);
                         updated++;
                     }
+
+                    // ── Push to Weaviate vector store ──
+                    pushToWeaviate(doc);
 
                 } catch (Exception e) {
                     errors++;
@@ -223,7 +234,63 @@ public class KnowledgeService {
         }
     }
 
-    // ── helpers ──
+    // ── Weaviate push with chunking ──
+
+    private final TextChunker chunker = new TextChunker(800, 100, 50);
+
+    private void pushToWeaviate(KnowledgeDocEntity doc) {
+        if (!weaviateClient.isEnabled()) return;
+        if (doc.getId() == null) {
+            log.warn("Weaviate push skipped: doc has no ID (feishuToken={})", doc.getFeishuToken());
+            return;
+        }
+        try {
+            List<String> chunks = chunker.chunk(doc.getTitle(), doc.getContent());
+            if (chunks.isEmpty()) return;
+
+            List<float[]> vectors = new ArrayList<>();
+            for (String chunk : chunks) {
+                float[] vec = embeddingService.embed(chunk);
+                if (vec.length == 0) {
+                    log.warn("Empty embedding for chunk, skipping entire doc {}", doc.getId());
+                    return;   // skip whole doc if any chunk fails
+                }
+                vectors.add(vec);
+            }
+
+            List<String> tags = doc.getTags() != null ? parseTags(doc.getTags()) : List.of();
+            List<WeaviateClientService.ChunkVec> chunkVecs = new ArrayList<>();
+            for (int i = 0; i < chunks.size(); i++) {
+                chunkVecs.add(new WeaviateClientService.ChunkVec(
+                        doc.getId(), doc.getFeishuToken(), doc.getTitle(), chunks.get(i),
+                        doc.getFeishuUrl(), doc.getFeishuType(), tags, i, chunks.size()));
+            }
+
+            int inserted = weaviateClient.replaceChunks(doc.getFeishuToken(), chunkVecs, vectors);
+            if (inserted > 0) {
+                log.info("Weaviate: pushed {} chunks for doc id={}", inserted, doc.getId());
+            }
+        } catch (Exception e) {
+            log.warn("Weaviate push failed for doc {}: {}", doc.getId(), e.getMessage());
+        }
+    }
+
+    private List<String> parseTags(String raw) {
+        if (raw == null || raw.isBlank() || "[]".equals(raw.trim())) return List.of();
+        try {
+            String inner = raw.trim();
+            if (inner.startsWith("[")) inner = inner.substring(1);
+            if (inner.endsWith("]")) inner = inner.substring(0, inner.length() - 1);
+            if (inner.isBlank()) return List.of();
+            return java.util.Arrays.stream(inner.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .map(s -> s.startsWith("\"") ? s.substring(1, s.length() - 1) : s)
+                    .toList();
+        } catch (Exception e) {
+            return List.of(raw);
+        }
+    }
 
     private boolean isDocxType(String type) {
         return "docx".equalsIgnoreCase(type) || "doc".equalsIgnoreCase(type)

@@ -5,6 +5,8 @@ import com.flowmind.knowledge.entity.KnowledgeDocEntity;
 import com.flowmind.knowledge.entity.SyncLogEntity;
 import com.flowmind.knowledge.mapper.SyncLogMapper;
 import com.flowmind.knowledge.service.KnowledgeService;
+import com.flowmind.knowledge.vector.EmbeddingService;
+import com.flowmind.knowledge.vector.WeaviateClientService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
@@ -23,10 +25,15 @@ public class KnowledgeController {
 
     private final KnowledgeService service;
     private final SyncLogMapper syncLogMapper;
+    private final EmbeddingService embeddingService;
+    private final WeaviateClientService weaviateClient;
 
-    public KnowledgeController(KnowledgeService service, SyncLogMapper syncLogMapper) {
+    public KnowledgeController(KnowledgeService service, SyncLogMapper syncLogMapper,
+                               EmbeddingService embeddingService, WeaviateClientService weaviateClient) {
         this.service = service;
         this.syncLogMapper = syncLogMapper;
+        this.embeddingService = embeddingService;
+        this.weaviateClient = weaviateClient;
     }
 
     // ── Search & List ──
@@ -143,6 +150,49 @@ public class KnowledgeController {
             tagSet.addAll(docTags);
         }
         return ApiResponse.success(new ArrayList<>(tagSet));
+    }
+
+    // ── Vector / Semantic Search ──
+
+    @GetMapping("/search")
+    public ApiResponse<?> semanticSearch(
+            @RequestParam String q,
+            @RequestParam(defaultValue = "10") int topK) {
+        if (!weaviateClient.isEnabled()) {
+            return ApiResponse.failed("Weaviate not enabled");
+        }
+        try {
+            float[] queryVec = embeddingService.embed(q);
+            if (queryVec.length == 0) {
+                return ApiResponse.failed("Embedding failed");
+            }
+            List<WeaviateClientService.SearchHit> hits = weaviateClient.search(queryVec, topK);
+            if (hits.isEmpty()) {
+                return ApiResponse.success(List.of(Map.of("message", "No results found")));
+            }
+
+            // Deduplicate by feishuToken, keep best distance per doc
+            Map<String, WeaviateClientService.SearchHit> best = new LinkedHashMap<>();
+            for (WeaviateClientService.SearchHit h : hits) {
+                best.merge(h.feishuToken(), h,
+                        (a, b) -> a.distance() < b.distance() ? a : b);
+            }
+
+            return ApiResponse.success(best.values().stream()
+                    .map(h -> Map.of(
+                            "mysqlId", h.mysqlId(),
+                            "feishuToken", h.feishuToken(),
+                            "title", h.title(),
+                            "chunkText", h.chunkText(),
+                            "feishuUrl", h.feishuUrl(),
+                            "feishuType", h.feishuType(),
+                            "distance", h.distance()
+                    ))
+                    .toList());
+        } catch (Exception e) {
+            log.error("Semantic search failed", e);
+            return ApiResponse.failed("Search failed: " + e.getMessage());
+        }
     }
 
     // ── helpers ──

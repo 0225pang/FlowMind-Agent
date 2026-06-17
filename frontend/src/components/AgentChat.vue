@@ -48,7 +48,6 @@ const box = ref<HTMLElement>()
 const messages = ref<ChatItem[]>([])
 
 const prompts = [
-  '创建一个飞书文档，里面写上我喜欢刘昌乐',
   '生成 10 个保研小红书选题，并给出爆款结构',
   '把朋友圈场景"收到 offer"写成专业但克制的人设文案',
   '总结知识库里的夏令营资料，并提取标签',
