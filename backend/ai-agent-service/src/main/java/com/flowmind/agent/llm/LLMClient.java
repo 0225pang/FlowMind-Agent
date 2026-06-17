@@ -8,4 +8,10 @@ public interface LLMClient {
     default void stream(String systemPrompt, String userPrompt, Consumer<String> onDelta) {
         onDelta.accept(complete(systemPrompt, userPrompt));
     }
+
+    default void stream(String systemPrompt, String userPrompt,
+                        Consumer<String> onDelta,
+                        Consumer<String> onReasoningDelta) {
+        stream(systemPrompt, userPrompt, onDelta);
+    }
 }

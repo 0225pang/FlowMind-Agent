@@ -10,6 +10,8 @@
         :streaming="msg.streaming"
         :trace-items="msg.traceItems"
         :thinking="msg.thinking"
+        :thinking-history="msg.thinkingHistory"
+        :model-thinking="msg.modelThinking"
       />
     </div>
 
@@ -22,7 +24,7 @@
         v-model="input"
         class="composer-input"
         size="large"
-        placeholder="直接输入需求，例如：根据保研知识库总结资料、创建飞书文档、生成小红书选题"
+        placeholder="直接输入任务，例如：根据保研知识库总结资料、创建飞书文档、生成小红书选题"
         :disabled="loading"
         @keyup.enter="send(input)"
       />
@@ -34,7 +36,14 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from 'vue'
 import ChatMessage from './ChatMessage.vue'
-import { chatWithAgent, streamAgentChat, loadConversationHistory, type AgentCard, type AgentTraceItem } from '@/api/agent'
+import {
+  chatWithAgent,
+  loadConversationHistory,
+  streamAgentChat,
+  type AgentCard,
+  type AgentTraceItem,
+  type MessageMetadata
+} from '@/api/agent'
 
 const props = defineProps<{ agentType: string; sessionId: string }>()
 const emit = defineEmits<{
@@ -50,6 +59,8 @@ interface ChatItem {
   streaming?: boolean
   traceItems?: AgentTraceItem[]
   thinking?: string
+  thinkingHistory?: string[]
+  modelThinking?: string
 }
 
 const input = ref('')
@@ -60,42 +71,38 @@ const messages = ref<ChatItem[]>([])
 const prompts = [
   '根据保研知识库，总结期末如何速成课程论文',
   '帮我生成 10 个保研小红书选题，并给出爆款结构',
-  '联网搜索一下今天最新的保研通知，并说明来源可信度',
+  '联网搜索今天最新的保研通知，并说明来源可信度',
   '在保研知识库中创建一篇飞书文档',
   '分析学员01的申请风险并给出下一步动作'
 ]
 
 async function loadHistory(sid: string, at: string) {
   if (!sid) {
-    messages.value = [{
-      id: Date.now(),
-      role: 'assistant',
-      content: '我是 FlowMind 总智能体。你可以直接输入任务，我会自动选择合适的 Agent，并展示工具调用过程。'
-    }]
+    messages.value = [welcomeMessage('我是 FlowMind 总智能体。你可以直接输入任务，我会自动选择合适的 Agent，并展示工具调用过程。')]
     return
   }
+
   try {
     const items = await loadConversationHistory(at, sid)
     if (items.length > 0) {
-      messages.value = items.map(item => ({
-        id: item.id || Date.now() + Math.random() * 10000,
-        role: item.role as 'user' | 'assistant',
-        content: item.content,
-        cards: []
-      }))
+      messages.value = items.map(item => {
+        const metadata = parseMessageMetadata(item.metadata)
+        return {
+          id: item.id || Date.now() + Math.random() * 10000,
+          role: item.role as 'user' | 'assistant',
+          content: item.content,
+          cards: [],
+          traceItems: metadata.traceItems || [],
+          thinking: metadata.thinking || last(metadata.thinkingHistory),
+          thinkingHistory: metadata.thinkingHistory || [],
+          modelThinking: metadata.modelThinking || ''
+        }
+      })
     } else {
-      messages.value = [{
-        id: Date.now(),
-        role: 'assistant',
-        content: '新会话已创建。直接输入你的任务，我会自动选择合适的 Agent。'
-      }]
+      messages.value = [welcomeMessage('新会话已创建。直接输入你的任务，我会自动选择合适的 Agent。')]
     }
   } catch {
-    messages.value = [{
-      id: Date.now(),
-      role: 'assistant',
-      content: '新会话已创建。直接输入你的任务，我会自动选择合适的 Agent。'
-    }]
+    messages.value = [welcomeMessage('新会话已创建。直接输入你的任务，我会自动选择合适的 Agent。')]
   }
 }
 
@@ -122,7 +129,9 @@ async function send(text: string) {
     cards: [],
     streaming: true,
     traceItems: [],
-    thinking: '正在准备...'
+    thinking: '正在准备...',
+    thinkingHistory: ['正在准备...'],
+    modelThinking: ''
   }
   messages.value.push(am)
   await scrollToBottom()
@@ -138,7 +147,7 @@ async function send(text: string) {
     }, async delta => {
       am.content += delta
       await scrollToBottom()
-    }, (newSid) => {
+    }, newSid => {
       if (newSid && newSid !== props.sessionId) {
         pendingSessionId = newSid
       }
@@ -147,6 +156,12 @@ async function send(text: string) {
       await scrollToBottom()
     }, async thinking => {
       am.thinking = thinking
+      if (thinking && am.thinkingHistory?.[am.thinkingHistory.length - 1] !== thinking) {
+        am.thinkingHistory = [...(am.thinkingHistory || []), thinking]
+      }
+      await scrollToBottom()
+    }, async reasoning => {
+      am.modelThinking = `${am.modelThinking || ''}${reasoning}`
       await scrollToBottom()
     })
 
@@ -172,6 +187,30 @@ async function send(text: string) {
 async function scrollToBottom() {
   await nextTick()
   box.value?.scrollTo({ top: box.value.scrollHeight, behavior: 'smooth' })
+}
+
+function parseMessageMetadata(raw: unknown): MessageMetadata {
+  if (!raw) return {}
+  if (typeof raw === 'object') return raw as MessageMetadata
+  if (typeof raw !== 'string' || !raw.trim()) return {}
+  try {
+    const parsed = JSON.parse(raw) as MessageMetadata
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function last(values?: string[]) {
+  return values && values.length > 0 ? values[values.length - 1] : undefined
+}
+
+function welcomeMessage(content: string): ChatItem {
+  return {
+    id: Date.now(),
+    role: 'assistant',
+    content
+  }
 }
 
 defineExpose({ send })

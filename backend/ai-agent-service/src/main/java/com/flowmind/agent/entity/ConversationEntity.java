@@ -9,6 +9,7 @@ public class ConversationEntity {
     private Integer turnIndex;
     private String role;       // "user" or "assistant"
     private String content;
+    private String metadata;
     private LocalDateTime createdAt;
 
     public Long getId() { return id; }
@@ -28,6 +29,9 @@ public class ConversationEntity {
 
     public String getContent() { return content; }
     public void setContent(String content) { this.content = content; }
+
+    public String getMetadata() { return metadata; }
+    public void setMetadata(String metadata) { this.metadata = metadata; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

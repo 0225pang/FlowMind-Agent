@@ -13,4 +13,8 @@ public interface Agent {
     AgentResponse execute(AgentRequest request);
 
     void stream(AgentRequest request, Consumer<String> onDelta);
+
+    default void stream(AgentRequest request, Consumer<String> onDelta, Consumer<String> onReasoningDelta) {
+        stream(request, onDelta);
+    }
 }

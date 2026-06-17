@@ -20,6 +20,16 @@ export interface AgentTraceItem {
   detail?: string
 }
 
+export interface MessageMetadata {
+  version?: number
+  agentType?: string
+  traceItems?: AgentTraceItem[]
+  thinking?: string
+  thinkingHistory?: string[]
+  modelThinking?: string
+  createdAt?: string
+}
+
 export interface AgentChatResponse {
   agentType: string
   reply: string
@@ -34,6 +44,7 @@ export interface ConversationItem {
   turnIndex: number
   role: string
   content: string
+  metadata?: string | MessageMetadata | null
   createdAt: string
 }
 
@@ -124,7 +135,8 @@ export async function streamAgentChat(
   onDelta: (text: string) => void,
   onSession?: (sessionId: string) => void,
   onTrace?: (items: AgentTraceItem[]) => void,
-  onThinking?: (text: string) => void
+  onThinking?: (text: string) => void,
+  onReasoning?: (text: string) => void
 ) {
   const response = await fetch(`${API_BASE}/chat/stream`, {
     method: 'POST',
@@ -162,6 +174,10 @@ export async function streamAgentChat(
       if (event.event === 'thinking' && onThinking) {
         const content = event.data?.content
         if (typeof content === 'string') onThinking(content)
+      }
+      if (event.event === 'reasoning' && onReasoning) {
+        const content = event.data?.content
+        if (typeof content === 'string') onReasoning(content)
       }
       if (event.event === 'done' && event.data?.sessionId && onSession) {
         onSession(event.data.sessionId)

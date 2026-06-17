@@ -39,7 +39,13 @@ public class ConversationService {
 
     public void saveMessage(String agentType, String sessionId, int turnIndex,
                              String role, String content) {
-        convMapper.insert(agentType, sessionId, turnIndex, role, truncate(content, 8000));
+        saveMessage(agentType, sessionId, turnIndex, role, content, null);
+    }
+
+    public void saveMessage(String agentType, String sessionId, int turnIndex,
+                             String role, String content, String metadata) {
+        convMapper.insert(agentType, sessionId, turnIndex, role, truncate(content, 8000),
+                metadata == null ? null : truncate(metadata, 60000));
         // Update session table: title from first user message
         if ("user".equals(role)) {
             String title = truncate(content, 80);

@@ -3,11 +3,27 @@
     <div class="avatar">{{ role === 'user' ? 'U' : 'AI' }}</div>
     <div class="msg-main">
       <div v-if="role === 'assistant' && thinking" class="thinking-line">
-        <span class="pulse" />
+        <span class="pulse" :class="{ done: !streaming }" />
         <span>{{ thinking }}</span>
+      </div>
+      <div v-if="role === 'assistant' && modelThinkingText && streaming" class="model-thinking-line">
+        <span>Thinking:</span>
+        <em>{{ modelThinkingPreview }}</em>
       </div>
 
       <div class="bubble">
+        <details v-if="role === 'assistant' && modelThinkingText && !streaming" class="model-thinking-panel">
+          <summary>模型 Thinking</summary>
+          <pre>{{ modelThinkingText }}</pre>
+        </details>
+
+        <details v-if="role === 'assistant' && hasThinkingHistory && !streaming" class="process-panel">
+          <summary>处理过程</summary>
+          <ol>
+            <li v-for="(line, index) in normalizedThinkingHistory" :key="`${index}-${line}`">{{ line }}</li>
+          </ol>
+        </details>
+
         <details v-if="role === 'assistant' && hasTrace" class="trace-panel">
           <summary>工具调用过程</summary>
           <div class="trace-list">
@@ -52,12 +68,30 @@ const props = defineProps<{
   streaming?: boolean
   traceItems?: AgentTraceItem[]
   thinking?: string
+  thinkingHistory?: string[]
+  modelThinking?: string
 }>()
 
 const renderedContent = computed(() => renderMarkdown(props.content || (props.streaming ? '正在生成...' : '')))
 const usedTraceItems = computed(() => (props.traceItems || []).filter(item => item.status !== 'skipped'))
 const hasTrace = computed(() => usedTraceItems.value.length > 0)
 const visibleCards = computed(() => (props.cards || []).filter(card => card.type !== 'trace' && card.type !== 'thinking'))
+const normalizedThinkingHistory = computed(() => {
+  const seen = new Set<string>()
+  return (props.thinkingHistory || [])
+    .map(line => String(line || '').trim())
+    .filter(line => {
+      if (!line || seen.has(line)) return false
+      seen.add(line)
+      return true
+    })
+})
+const hasThinkingHistory = computed(() => normalizedThinkingHistory.value.length > 0)
+const modelThinkingText = computed(() => String(props.modelThinking || '').trim())
+const modelThinkingPreview = computed(() => {
+  const text = modelThinkingText.value.replace(/\s+/g, ' ')
+  return text.length <= 180 ? text : `${text.slice(Math.max(0, text.length - 180))}`
+})
 
 function statusText(status: string) {
   if (status === 'used') return '已调用并返回上下文。'
@@ -116,13 +150,45 @@ function statusText(status: string) {
   line-height: 1.4;
 }
 
+.model-thinking-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: min(100%, 920px);
+  margin: -2px 0 7px 2px;
+  color: #a3acbd;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.model-thinking-line span {
+  flex: none;
+  color: #8b94a7;
+  font-weight: 700;
+}
+
+.model-thinking-line em {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-style: normal;
+}
+
 .pulse {
   width: 7px;
   height: 7px;
+  flex: none;
   border-radius: 50%;
   background: #8b5cf6;
   box-shadow: 0 0 0 0 rgba(139, 92, 246, .35);
   animation: pulse 1.2s infinite;
+}
+
+.pulse.done {
+  background: #12b76a;
+  animation: none;
+  box-shadow: none;
 }
 
 .bubble {
@@ -141,6 +207,8 @@ function statusText(status: string) {
   color: #fff;
 }
 
+.model-thinking-panel,
+.process-panel,
 .trace-panel {
   max-height: 320px;
   overflow: auto;
@@ -150,6 +218,8 @@ function statusText(status: string) {
   background: #f8faff;
 }
 
+.model-thinking-panel summary,
+.process-panel summary,
 .trace-panel summary {
   cursor: pointer;
   position: sticky;
@@ -161,6 +231,31 @@ function statusText(status: string) {
   font-size: 12px;
   font-weight: 700;
   user-select: none;
+}
+
+.model-thinking-panel pre {
+  margin: 0 10px 10px;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  border-radius: 8px;
+  padding: 10px;
+  background: #ffffff;
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.process-panel ol {
+  margin: 0;
+  padding: 0 12px 11px 30px;
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.process-panel li {
+  margin: 4px 0;
 }
 
 .trace-list {
@@ -197,6 +292,7 @@ function statusText(status: string) {
 .dot {
   width: 8px;
   height: 8px;
+  flex: none;
   border-radius: 50%;
   background: #cbd5e1;
 }

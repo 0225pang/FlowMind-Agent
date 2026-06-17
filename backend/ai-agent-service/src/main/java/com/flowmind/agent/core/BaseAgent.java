@@ -31,6 +31,12 @@ public abstract class BaseAgent implements Agent {
         llm.stream(systemPrompt(type, request), request.getMessage(), onDelta);
     }
 
+    @Override
+    public void stream(AgentRequest request, Consumer<String> onDelta, Consumer<String> onReasoningDelta) {
+        String type = getName().replace("Agent", "").toLowerCase();
+        llm.stream(systemPrompt(type, request), request.getMessage(), onDelta, onReasoningDelta);
+    }
+
     protected String systemPrompt(String agentType, AgentRequest request) {
         StringBuilder builder = new StringBuilder();
         builder.append("你是 FlowMind Agent 平台中的 ").append(getName()).append("。\n");

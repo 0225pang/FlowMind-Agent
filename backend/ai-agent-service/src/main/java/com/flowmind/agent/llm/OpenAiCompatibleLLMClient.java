@@ -52,6 +52,13 @@ public class OpenAiCompatibleLLMClient implements LLMClient {
 
     @Override
     public void stream(String systemPrompt, String userPrompt, Consumer<String> onDelta) {
+        stream(systemPrompt, userPrompt, onDelta, reasoning -> {});
+    }
+
+    @Override
+    public void stream(String systemPrompt, String userPrompt,
+                       Consumer<String> onDelta,
+                       Consumer<String> onReasoningDelta) {
         try {
             HttpRequest request = buildRequest(systemPrompt, userPrompt, true);
             HttpResponse<java.io.InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
@@ -63,9 +70,14 @@ public class OpenAiCompatibleLLMClient implements LLMClient {
                     String payload = line.substring("data:".length()).trim();
                     if (payload.isEmpty() || "[DONE]".equals(payload)) continue;
                     JsonNode root = objectMapper.readTree(payload);
-                    JsonNode delta = root.path("choices").path(0).path("delta").path("content");
-                    if (delta.isTextual() && !delta.asText().isEmpty()) {
-                        onDelta.accept(delta.asText());
+                    JsonNode delta = root.path("choices").path(0).path("delta");
+                    String reasoning = firstText(delta, "reasoning_content", "reasoning", "thinking");
+                    if (!reasoning.isEmpty()) {
+                        onReasoningDelta.accept(reasoning);
+                    }
+                    JsonNode content = delta.path("content");
+                    if (content.isTextual() && !content.asText().isEmpty()) {
+                        onDelta.accept(content.asText());
                     }
                 }
             }
@@ -75,6 +87,16 @@ public class OpenAiCompatibleLLMClient implements LLMClient {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("LLM stream interrupted", e);
         }
+    }
+
+    private String firstText(JsonNode node, String... fields) {
+        for (String field : fields) {
+            JsonNode value = node.path(field);
+            if (value.isTextual() && !value.asText().isEmpty()) {
+                return value.asText();
+            }
+        }
+        return "";
     }
 
     private HttpRequest buildRequest(String systemPrompt, String userPrompt, boolean stream) throws IOException {

@@ -48,6 +48,10 @@ public class AgentRouter {
         resolve(request).stream(request, onDelta);
     }
 
+    public void stream(AgentRequest request, Consumer<String> onDelta, Consumer<String> onReasoningDelta) {
+        resolve(request).stream(request, onDelta, onReasoningDelta);
+    }
+
     public String resolveAgentType(AgentRequest request) {
         return agentType(resolve(request));
     }
