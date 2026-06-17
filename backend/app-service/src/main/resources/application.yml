@@ -1,5 +1,6 @@
 server:
   port: 8080
+
 spring:
   application:
     name: flowmind-app-service
@@ -15,6 +16,7 @@ spring:
     redis:
       host: localhost
       port: 6379
+
 flowmind:
   minio:
     endpoint: http://localhost:9000
@@ -49,6 +51,11 @@ flowmind:
     enabled: true
     base-url: http://localhost:18080
     scheme: http
+  vector-demo:
+    enabled: true
+    fallback-enabled: true
+    max-top-k: 20
+
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
