@@ -56,6 +56,7 @@ public class WeaviateClientService {
                     .build();
             var checkResp = httpClient.send(checkReq, HttpResponse.BodyHandlers.ofString());
             if (checkResp.statusCode() == 200) {
+                ensureSchemaProperties(checkResp.body());
                 log.info("Weaviate class '{}' already exists", CLASS_NAME);
                 return;
             }
@@ -67,9 +68,9 @@ public class WeaviateClientService {
             ArrayNode props = classDef.putArray("properties");
             addProp(props, "title", "text");
             addProp(props, "chunkText", "text");
-            addProp(props, "feishuToken", "string");
-            addProp(props, "feishuUrl", "string");
-            addProp(props, "feishuType", "string");
+            addProp(props, "feishuToken", "text");
+            addProp(props, "feishuUrl", "text");
+            addProp(props, "feishuType", "text");
             addProp(props, "tags", "text[]");
             addProp(props, "mysqlId", "int");
             addProp(props, "chunkIndex", "int");
@@ -88,6 +89,48 @@ public class WeaviateClientService {
             }
         } catch (Exception e) {
             log.warn("Weaviate schema init failed (non-fatal): {}", e.getMessage());
+        }
+    }
+
+    private void ensureSchemaProperties(String schemaBody) {
+        try {
+            JsonNode root = objectMapper.readTree(schemaBody);
+            List<String> existing = new ArrayList<>();
+            root.path("properties").forEach(prop -> existing.add(prop.path("name").asText("")));
+
+            ArrayNode missing = objectMapper.createArrayNode();
+            addPropIfMissing(existing, missing, "title", "text");
+            addPropIfMissing(existing, missing, "chunkText", "text");
+            addPropIfMissing(existing, missing, "feishuToken", "text");
+            addPropIfMissing(existing, missing, "feishuUrl", "text");
+            addPropIfMissing(existing, missing, "feishuType", "text");
+            addPropIfMissing(existing, missing, "tags", "text[]");
+            addPropIfMissing(existing, missing, "mysqlId", "int");
+            addPropIfMissing(existing, missing, "chunkIndex", "int");
+            addPropIfMissing(existing, missing, "totalChunks", "int");
+
+            for (JsonNode prop : missing) {
+                var req = HttpRequest.newBuilder()
+                        .uri(URI.create(baseUrl + "/v1/schema/" + CLASS_NAME + "/properties"))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(prop)))
+                        .build();
+                var resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+                if (resp.statusCode() >= 200 && resp.statusCode() < 300) {
+                    log.info("Weaviate property added: {}", prop.path("name").asText());
+                } else {
+                    log.warn("Failed to add Weaviate property {}: {} {}",
+                            prop.path("name").asText(), resp.statusCode(), resp.body());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Weaviate schema property check failed (non-fatal): {}", e.getMessage());
+        }
+    }
+
+    private void addPropIfMissing(List<String> existing, ArrayNode props, String name, String dataType) {
+        if (!existing.contains(name)) {
+            addProp(props, name, dataType);
         }
     }
 
@@ -164,7 +207,7 @@ public class WeaviateClientService {
         try {
             String match = "{\"match\":{\"class\":\"" + CLASS_NAME
                     + "\",\"where\":{\"operator\":\"Equal\",\"path\":[\"feishuToken\"],"
-                    + "\"valueString\":\"" + escapeJson(feishuToken) + "\"}}}";
+                    + "\"valueText\":\"" + escapeJson(feishuToken) + "\"}}}";
             var req = HttpRequest.newBuilder()
                     .uri(URI.create(baseUrl + "/v1/batch/objects"))
                     .header("Content-Type", "application/json")
@@ -174,6 +217,32 @@ public class WeaviateClientService {
             log.debug("Weaviate delete {}: {}", feishuToken, resp.statusCode());
         } catch (Exception e) {
             log.warn("Weaviate delete failed for {}: {}", feishuToken, e.getMessage());
+        }
+    }
+
+    public boolean existsByFeishuToken(String feishuToken) {
+        if (!enabled || feishuToken == null || feishuToken.isBlank()) return false;
+        try {
+            ObjectNode gqlBody = objectMapper.createObjectNode();
+            gqlBody.put("query", "{ Get { " + CLASS_NAME
+                    + "(where:{operator:Equal,path:[\"feishuToken\"],valueText:\""
+                    + escapeGraphql(feishuToken) + "\"} limit:1) { feishuToken } } }");
+
+            var req = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/v1/graphql"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(gqlBody)))
+                    .build();
+            var resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() != 200) {
+                log.warn("Weaviate exists check failed: {} {}", resp.statusCode(), resp.body());
+                return false;
+            }
+            JsonNode items = objectMapper.readTree(resp.body()).path("data").path("Get").path(CLASS_NAME);
+            return items.isArray() && !items.isEmpty();
+        } catch (Exception e) {
+            log.warn("Weaviate exists check failed for {}: {}", feishuToken, e.getMessage());
+            return false;
         }
     }
 
@@ -202,7 +271,12 @@ public class WeaviateClientService {
             var resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
 
             if (resp.statusCode() == 200) {
-                return parseSearchResults(resp.body());
+                List<SearchHit> hits = parseSearchResults(resp.body());
+                if (!hits.isEmpty()) return hits;
+                if (hasGraphqlErrors(resp.body())) {
+                    return searchLegacySummary(queryVector, topK);
+                }
+                return hits;
             }
             log.warn("Weaviate search failed: {} {}", resp.statusCode(), resp.body());
             return List.of();
@@ -210,6 +284,35 @@ public class WeaviateClientService {
             log.warn("Weaviate search failed: {}", e.getMessage());
             return List.of();
         }
+    }
+
+    private List<SearchHit> searchLegacySummary(float[] queryVector, int topK) {
+        try {
+            StringBuilder gql = new StringBuilder();
+            gql.append("{ Get { ").append(CLASS_NAME).append("(nearVector: {vector: [");
+            for (int i = 0; i < queryVector.length; i++) {
+                if (i > 0) gql.append(",");
+                gql.append(queryVector[i]);
+            }
+            gql.append("]} limit: ").append(topK)
+                .append(") { mysqlId feishuToken title summary feishuUrl feishuType tags _additional { distance } } } }");
+
+            ObjectNode gqlBody = objectMapper.createObjectNode();
+            gqlBody.put("query", gql.toString());
+            var req = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/v1/graphql"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(gqlBody)))
+                    .build();
+            var resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() == 200) {
+                return parseSearchResults(resp.body());
+            }
+            log.warn("Weaviate legacy summary search failed: {} {}", resp.statusCode(), resp.body());
+        } catch (Exception e) {
+            log.warn("Weaviate legacy summary search failed: {}", e.getMessage());
+        }
+        return List.of();
     }
 
     public record SearchHit(int mysqlId, String feishuToken, String title, String chunkText,
@@ -238,7 +341,7 @@ public class WeaviateClientService {
                             item.path("mysqlId").asInt(),
                             item.path("feishuToken").asText(""),
                             item.path("title").asText(""),
-                            item.path("chunkText").asText(""),
+                            firstText(item, "chunkText", "summary", "content"),
                             item.path("feishuUrl").asText(""),
                             item.path("feishuType").asText(""),
                             tags,
@@ -256,5 +359,26 @@ public class WeaviateClientService {
 
     private String escapeJson(String s) {
         return s.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private String escapeGraphql(String s) {
+        return escapeJson(s);
+    }
+
+    private boolean hasGraphqlErrors(String body) {
+        try {
+            JsonNode errors = objectMapper.readTree(body).path("errors");
+            return errors.isArray() && !errors.isEmpty();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private String firstText(JsonNode item, String... fields) {
+        for (String field : fields) {
+            String value = item.path(field).asText("");
+            if (!value.isBlank()) return value;
+        }
+        return "";
     }
 }

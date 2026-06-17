@@ -8,6 +8,8 @@
         :content="msg.content"
         :cards="msg.cards"
         :streaming="msg.streaming"
+        :trace-items="msg.traceItems"
+        :reasoning="msg.reasoning"
       />
     </div>
 
@@ -20,7 +22,7 @@
         v-model="input"
         class="composer-input"
         size="large"
-        placeholder="直接输入需求，例如：创建飞书文档、生成小红书选题、分析学员风险..."
+        placeholder="直接输入需求，例如：根据保研知识库总结资料、创建飞书文档、生成小红书选题"
         :disabled="loading"
         @keyup.enter="send(input)"
       />
@@ -32,7 +34,7 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from 'vue'
 import ChatMessage from './ChatMessage.vue'
-import { chatWithAgent, streamAgentChat, loadConversationHistory, type AgentCard } from '@/api/agent'
+import { chatWithAgent, streamAgentChat, loadConversationHistory, type AgentCard, type AgentTraceItem } from '@/api/agent'
 
 const props = defineProps<{ agentType: string; sessionId: string }>()
 const emit = defineEmits<{
@@ -40,7 +42,15 @@ const emit = defineEmits<{
   (e: 'message-sent'): void
 }>()
 
-interface ChatItem { id: number; role: 'user' | 'assistant'; content: string; cards?: AgentCard[]; streaming?: boolean }
+interface ChatItem {
+  id: number
+  role: 'user' | 'assistant'
+  content: string
+  cards?: AgentCard[]
+  streaming?: boolean
+  traceItems?: AgentTraceItem[]
+  reasoning?: string
+}
 
 const input = ref('')
 const loading = ref(false)
@@ -48,11 +58,11 @@ const box = ref<HTMLElement>()
 const messages = ref<ChatItem[]>([])
 
 const prompts = [
-  '生成 10 个保研小红书选题，并给出爆款结构',
-  '把朋友圈场景"收到 offer"写成专业但克制的人设文案',
-  '总结知识库里的夏令营资料，并提取标签',
-  '分析学员01的申请风险并给出下一步动作',
-  '推荐适合经管学生的夏令营项目'
+  '根据保研知识库，总结期末如何速成课程论文',
+  '帮我生成 10 个保研小红书选题，并给出爆款结构',
+  '联网搜索一下今天最新的保研通知，并说明来源可信度',
+  '在保研知识库中创建一篇飞书文档',
+  '分析学员01的申请风险并给出下一步动作'
 ]
 
 async function loadHistory(sid: string, at: string) {
@@ -60,7 +70,7 @@ async function loadHistory(sid: string, at: string) {
     messages.value = [{
       id: Date.now(),
       role: 'assistant',
-      content: '我是 FlowMind 总智能体。你可以直接说需求，我会自动调用内容、知识库、学员、院校或飞书 Agent。'
+      content: '我是 FlowMind 总智能体。你可以直接输入任务，我会自动选择合适的 Agent，并展示工具调用过程。'
     }]
     return
   }
@@ -105,7 +115,7 @@ async function send(text: string) {
   input.value = ''
   loading.value = true
 
-  const am: ChatItem = { id: Date.now() + 1, role: 'assistant', content: '', cards: [], streaming: true }
+  const am: ChatItem = { id: Date.now() + 1, role: 'assistant', content: '', cards: [], streaming: true, traceItems: [], reasoning: '' }
   messages.value.push(am)
   await scrollToBottom()
 
@@ -121,14 +131,17 @@ async function send(text: string) {
       am.content += delta
       await scrollToBottom()
     }, (newSid) => {
-      // Defer session-created until stream is done;
-      // emitting mid-stream destroys this component via :key change.
       if (newSid && newSid !== props.sessionId) {
         pendingSessionId = newSid
       }
+    }, async traceItems => {
+      am.traceItems = traceItems
+      await scrollToBottom()
+    }, async reasoning => {
+      am.reasoning = reasoning
+      await scrollToBottom()
     })
 
-    // Now safe to fire — component won't be torn down mid-render
     if (pendingSessionId && pendingSessionId !== props.sessionId) {
       emit('session-created', pendingSessionId)
     }

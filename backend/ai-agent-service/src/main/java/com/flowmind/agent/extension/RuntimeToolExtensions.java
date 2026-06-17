@@ -20,14 +20,16 @@ import java.util.regex.Pattern;
 @Component
 class CurrentTimeMcpExtension implements McpToolProvider {
     private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
-    private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy年MM月dd日 HH:mm:ss EEEE");
+    private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss EEEE");
 
+    @Override
     public String name() {
         return "current-time";
     }
 
+    @Override
     public String description() {
-        return "获取当前日期、时间和时区。仅在用户明确要求时提供。";
+        return "Get the current date, time and timezone. Use only when the user asks about current time/date.";
     }
 
     @Override
@@ -35,20 +37,23 @@ class CurrentTimeMcpExtension implements McpToolProvider {
         return true;
     }
 
+    @Override
     public String runtimeContext(AgentRequest request) {
-        // Only provide time context when the user explicitly asks for it
-        String msg = request.getMessage();
-        if (msg == null) return "";
-        String lower = msg.toLowerCase();
-        if (lower.contains("几点了") || lower.contains("时间") || lower.contains("日期")
-                || lower.contains("今天几号") || lower.contains("现在什么时间")
-                || lower.contains("what time") || lower.contains("current time")
-                || lower.contains("今天星期") || lower.contains("今年是")
-                || lower.contains("现在几点")) {
-            LocalDateTime now = LocalDateTime.now(ZONE);
-            return "当前时间：" + now.format(FORMATTER) + "\n时区：Asia/Shanghai";
+        if (request == null || request.getMessage() == null) return "";
+        String lower = request.getMessage().toLowerCase();
+        if (!containsAny(lower, "几点", "时间", "日期", "今天几号", "现在是什么时间",
+                "今天星期", "今年是", "current time", "what time", "date today")) {
+            return "";
         }
-        return "";
+        LocalDateTime now = LocalDateTime.now(ZONE);
+        return "Current time: " + now.format(FORMATTER) + "\nTimezone: Asia/Shanghai";
+    }
+
+    private boolean containsAny(String text, String... keywords) {
+        for (String keyword : keywords) {
+            if (text.contains(keyword.toLowerCase())) return true;
+        }
+        return false;
     }
 }
 
@@ -56,8 +61,13 @@ class CurrentTimeMcpExtension implements McpToolProvider {
 class WebAccessMcpExtension implements McpToolProvider {
     private static final Pattern URL_PATTERN = Pattern.compile("https?://\\S+");
     private static final Pattern TITLE_PATTERN = Pattern.compile("<title[^>]*>(.*?)</title>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
-    private static final Pattern RESULT_PATTERN = Pattern.compile("class=\"result__a\"[^>]*>(.*?)</a>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
-    private final HttpClient httpClient = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build();
+    private static final Pattern RESULT_PATTERN = Pattern.compile(
+            "<a[^>]+class=\"result__a\"[^>]+href=\"([^\"]+)\"[^>]*>(.*?)</a>",
+            Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build();
 
     @Value("${flowmind.tools.web.enabled:true}")
     private boolean enabled;
@@ -65,19 +75,27 @@ class WebAccessMcpExtension implements McpToolProvider {
     @Value("${flowmind.tools.web.search-url:https://duckduckgo.com/html/?q=}")
     private String searchUrl;
 
+    @Override
     public String name() {
         return "web-access";
     }
 
+    @Override
     public String description() {
-        return "访问互联网，支持 URL 摘要和轻量搜索。正式生产可替换为 Bing/Tavily/SerpAPI/MCP Browser。";
+        return "Lightweight web access. Supports URL title/summary and DuckDuckGo HTML search. Results are search snippets, not verified authoritative facts.";
     }
 
+    @Override
+    public boolean supports(String agentType) {
+        return true;
+    }
+
+    @Override
     public String runtimeContext(AgentRequest request) {
         if (!enabled || request == null || request.getMessage() == null) return "";
         String message = request.getMessage();
-        // Only search when user explicitly requests web access
         if (!needsSearch(message)) return "";
+
         Matcher urlMatcher = URL_PATTERN.matcher(message);
         if (urlMatcher.find()) {
             return fetchUrl(urlMatcher.group());
@@ -87,10 +105,10 @@ class WebAccessMcpExtension implements McpToolProvider {
 
     private boolean needsSearch(String message) {
         String text = message.toLowerCase();
-        return text.contains("联网搜")
-                || text.contains("搜索一下")
-                || text.contains("帮我搜")
-                || text.contains("查一下最新");
+        return containsAny(text,
+                "联网", "上网", "搜索", "查一下", "查一查", "最新", "今天的", "现在的",
+                "浏览网页", "打开网页", "访问", "http://", "https://",
+                "web search", "search web", "google", "duckduckgo");
     }
 
     private String fetchUrl(String url) {
@@ -98,9 +116,13 @@ class WebAccessMcpExtension implements McpToolProvider {
             String html = get(url);
             String title = firstMatch(TITLE_PATTERN, html);
             String text = stripHtml(html);
-            return "已访问 URL：" + url + "\n标题：" + fallback(title, "未识别") + "\n摘要：" + summarize(text);
+            return "Web URL fetched.\n"
+                    + "Reliability: medium. This is raw webpage text and may need verification.\n"
+                    + "URL: " + url + "\n"
+                    + "Title: " + fallback(title, "unknown") + "\n"
+                    + "Summary: " + summarize(text);
         } catch (Exception e) {
-            return "尝试访问 URL 失败：" + url + "\n原因：" + e.getMessage();
+            return "Web URL fetch failed.\nURL: " + url + "\nReason: " + e.getMessage();
         }
     }
 
@@ -108,18 +130,28 @@ class WebAccessMcpExtension implements McpToolProvider {
         try {
             String html = get(searchUrl + URLEncoder.encode(query, StandardCharsets.UTF_8));
             Matcher matcher = RESULT_PATTERN.matcher(html);
-            StringBuilder builder = new StringBuilder("联网搜索关键词：").append(query).append("\n搜索结果摘要：\n");
+            StringBuilder builder = new StringBuilder();
+            builder.append("Web search was called.\n");
+            builder.append("Reliability: low to medium. These are search-result titles/links from DuckDuckGo HTML, not verified source facts. Prefer official or primary sources before making strong claims.\n");
+            builder.append("Query: ").append(query).append("\n");
+            builder.append("Results:\n");
+
             int count = 0;
             while (matcher.find() && count < 5) {
                 count++;
-                builder.append(count).append(". ").append(stripHtml(matcher.group(1))).append("\n");
+                String href = stripHtml(matcher.group(1));
+                String title = stripHtml(matcher.group(2));
+                builder.append(count).append(". ").append(title).append("\n")
+                        .append("   ").append(href).append("\n");
             }
             if (count == 0) {
-                builder.append(summarize(stripHtml(html))).append("\n");
+                builder.append("No structured search results parsed. Raw page summary: ")
+                        .append(summarize(stripHtml(html))).append("\n");
             }
             return builder.toString();
         } catch (Exception e) {
-            return "联网搜索失败：" + e.getMessage() + "\n请说明：当前环境可能无法访问外网，或需要配置正式搜索服务。";
+            return "Web search failed: " + e.getMessage()
+                    + "\nThe runtime environment may not have external network access, or a formal search API may need to be configured.";
         }
     }
 
@@ -142,6 +174,7 @@ class WebAccessMcpExtension implements McpToolProvider {
     }
 
     private String stripHtml(String html) {
+        if (html == null) return "";
         return html.replaceAll("(?is)<script.*?</script>", " ")
                 .replaceAll("(?is)<style.*?</style>", " ")
                 .replaceAll("<[^>]+>", " ")
@@ -150,16 +183,24 @@ class WebAccessMcpExtension implements McpToolProvider {
                 .replace("&lt;", "<")
                 .replace("&gt;", ">")
                 .replace("&quot;", "\"")
+                .replace("&#39;", "'")
                 .replaceAll("\\s+", " ")
                 .trim();
     }
 
     private String summarize(String text) {
-        if (text == null || text.isBlank()) return "未提取到可读文本。";
-        return text.length() <= 600 ? text : text.substring(0, 600) + "...";
+        if (text == null || text.isBlank()) return "No readable text extracted.";
+        return text.length() <= 700 ? text : text.substring(0, 700) + "...";
     }
 
     private String fallback(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private boolean containsAny(String text, String... keywords) {
+        for (String keyword : keywords) {
+            if (text.contains(keyword.toLowerCase())) return true;
+        }
+        return false;
     }
 }

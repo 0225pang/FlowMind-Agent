@@ -24,9 +24,15 @@ username: root
 password: 123456
 ```
 
-## 2. Start Backend With MockLLM
+## 2. Start Backend
 
-Use this when you only need the demo pages and mock responses:
+Default behavior:
+
+- `flowmind.llm.provider` is `deepseek`.
+- If `flowmind.llm.api-key` is empty, the backend automatically uses `MockLLMClient`.
+- If `flowmind.llm.api-key` is set, the backend automatically uses `OpenAiCompatibleLLMClient` and calls DeepSeek.
+
+Start command:
 
 ```powershell
 cd "H:\Babycode\FlowMind Agent\flowmind-agent\backend"
@@ -43,19 +49,21 @@ If port `8080` is occupied:
 
 The backend does not use a DeepSeek SDK. It uses `OpenAiCompatibleLLMClient`, so DeepSeek, OpenAI-compatible gateways, and local OpenAI-compatible models can share the same client.
 
+Because DeepSeek is now the default provider, you only need to provide an API key.
+
 ### Option A: Direct command
 
 This is the fastest way to test. Replace `sk-xxxx` with your DeepSeek API key:
 
 ```powershell
 cd "H:\Babycode\FlowMind Agent\flowmind-agent\backend"
-.\mvnw.cmd -s maven-settings.xml -pl app-service -am spring-boot:run "-Dspring-boot.run.arguments=--flowmind.llm.provider=deepseek --flowmind.llm.base-url=https://api.deepseek.com --flowmind.llm.chat-path=/chat/completions --flowmind.llm.model=deepseek-chat --flowmind.llm.api-key=sk-xxxx"
+.\mvnw.cmd -s maven-settings.xml -pl app-service -am spring-boot:run "-Dspring-boot.run.arguments=--flowmind.llm.api-key=sk-xxxx"
 ```
 
 If port `8080` is occupied:
 
 ```powershell
-.\mvnw.cmd -s maven-settings.xml -pl app-service -am spring-boot:run "-Dspring-boot.run.arguments=--server.port=18080 --flowmind.llm.provider=deepseek --flowmind.llm.base-url=https://api.deepseek.com --flowmind.llm.chat-path=/chat/completions --flowmind.llm.model=deepseek-chat --flowmind.llm.api-key=sk-xxxx"
+.\mvnw.cmd -s maven-settings.xml -pl app-service -am spring-boot:run "-Dspring-boot.run.arguments=--server.port=18080 --flowmind.llm.api-key=sk-xxxx"
 ```
 
 Note: this puts the API key in terminal history. For longer-term use, prefer Option B.
@@ -107,6 +115,8 @@ MockLLM ...
 ```
 
 then the backend is still using MockLLM.
+
+This means no valid DeepSeek API key was found, or `flowmind.llm.provider=mock` was explicitly set.
 
 If DeepSeek is enabled correctly, responses should come from the real model through:
 

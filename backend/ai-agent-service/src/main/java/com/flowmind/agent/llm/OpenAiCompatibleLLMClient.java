@@ -19,7 +19,7 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 @Component
-@ConditionalOnExpression("'${flowmind.llm.provider:mock}' != 'mock'")
+@ConditionalOnExpression("'${flowmind.llm.provider:deepseek}' != 'mock' && T(org.springframework.util.StringUtils).hasText('${flowmind.llm.api-key:}') && !'${flowmind.llm.api-key:}'.contains('PUT_YOUR')")
 public class OpenAiCompatibleLLMClient implements LLMClient {
     private final LlmProperties properties;
     private final ObjectMapper objectMapper;

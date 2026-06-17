@@ -48,6 +48,10 @@ public class AgentRouter {
         resolve(request).stream(request, onDelta);
     }
 
+    public String resolveAgentType(AgentRequest request) {
+        return agentType(resolve(request));
+    }
+
     private Agent resolve(AgentRequest request) {
         String inferred = inferAgentType(request);
         if (agents.containsKey(inferred)) return agents.get(inferred);

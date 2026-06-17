@@ -6,7 +6,7 @@ import org.springframework.stereotype.Component;
 @Component
 @ConfigurationProperties(prefix = "flowmind.llm")
 public class LlmProperties {
-    private String provider = "mock";
+    private String provider = "deepseek";
     private String baseUrl = "https://api.deepseek.com";
     private String chatPath = "/chat/completions";
     private String apiKey = "";

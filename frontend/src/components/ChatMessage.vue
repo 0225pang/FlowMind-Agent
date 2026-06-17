@@ -2,6 +2,32 @@
   <div :class="['msg', role]">
     <div class="avatar">{{ role === 'user' ? 'U' : 'AI' }}</div>
     <div class="bubble">
+      <div v-if="role === 'assistant' && hasTrace" class="trace-wrap">
+        <details class="trace-panel">
+          <summary>工具调用过程</summary>
+          <div class="trace-list">
+            <div v-for="(item, index) in traceItems" :key="index" class="trace-item">
+              <div class="trace-head">
+                <span class="dot" :class="item.status" />
+                <strong>{{ item.name }}</strong>
+                <em>{{ item.type }}</em>
+                <small>{{ item.durationMs ?? 0 }}ms</small>
+              </div>
+              <p>{{ item.summary || statusText(item.status) }}</p>
+              <details v-if="item.detail" class="trace-detail">
+                <summary>查看结果</summary>
+                <pre>{{ item.detail }}</pre>
+              </details>
+            </div>
+          </div>
+        </details>
+
+        <details v-if="reasoning" class="trace-panel reasoning">
+          <summary>推理摘要</summary>
+          <pre>{{ reasoning }}</pre>
+        </details>
+      </div>
+
       <div class="content" v-html="renderedContent" />
       <span v-if="streaming" class="cursor" />
       <div v-if="cards?.length" class="cards">
@@ -17,15 +43,25 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { renderMarkdown } from '@/utils/markdown'
+import type { AgentTraceItem } from '@/api/agent'
 
 const props = defineProps<{
   role: 'user' | 'assistant'
   content: string
   cards?: Record<string, unknown>[]
   streaming?: boolean
+  traceItems?: AgentTraceItem[]
+  reasoning?: string
 }>()
 
-const renderedContent = computed(() => renderMarkdown(props.content || (props.streaming ? '正在思考...' : '')))
+const renderedContent = computed(() => renderMarkdown(props.content || (props.streaming ? '正在生成...' : '')))
+const hasTrace = computed(() => Array.isArray(props.traceItems) && props.traceItems.length > 0)
+
+function statusText(status: string) {
+  if (status === 'used') return '已调用并返回上下文。'
+  if (status === 'failed') return '调用失败。'
+  return '未触发。'
+}
 </script>
 
 <style scoped>
@@ -71,6 +107,108 @@ const renderedContent = computed(() => renderMarkdown(props.content || (props.st
   border: 0;
   background: linear-gradient(135deg, #5b6cff, #8b5cf6);
   color: #fff;
+}
+
+.trace-wrap {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.trace-panel {
+  border: 1px solid #dfe5f2;
+  border-radius: 8px;
+  background: #f8faff;
+  overflow: hidden;
+}
+
+.trace-panel summary {
+  cursor: pointer;
+  padding: 9px 11px;
+  color: #344054;
+  font-size: 12px;
+  font-weight: 700;
+  user-select: none;
+}
+
+.trace-list {
+  display: grid;
+  gap: 8px;
+  padding: 0 10px 10px;
+}
+
+.trace-item {
+  border: 1px solid #e7ebf3;
+  border-radius: 8px;
+  padding: 9px;
+  background: #fff;
+}
+
+.trace-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #101828;
+  font-size: 12px;
+}
+
+.trace-head em {
+  color: #667085;
+  font-style: normal;
+}
+
+.trace-head small {
+  margin-left: auto;
+  color: #98a2b3;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #cbd5e1;
+}
+
+.dot.used {
+  background: #12b76a;
+}
+
+.dot.failed {
+  background: #f04438;
+}
+
+.trace-item p {
+  margin: 6px 0 0;
+  color: #475467;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.trace-detail {
+  margin-top: 7px;
+}
+
+.trace-detail summary {
+  padding: 0;
+  color: #5b6cff;
+  font-weight: 600;
+}
+
+.trace-panel pre {
+  margin: 8px 10px 10px;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  border-radius: 8px;
+  padding: 10px;
+  background: #101828;
+  color: #e2e8f0;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.trace-detail pre {
+  margin: 8px 0 0;
 }
 
 .content {
@@ -233,12 +371,8 @@ const renderedContent = computed(() => renderMarkdown(props.content || (props.st
 }
 
 @keyframes blink {
-  0%, 45% {
-    opacity: 1;
-  }
-  46%, 100% {
-    opacity: 0;
-  }
+  0%, 45% { opacity: 1; }
+  46%, 100% { opacity: 0; }
 }
 
 @media (max-width: 760px) {

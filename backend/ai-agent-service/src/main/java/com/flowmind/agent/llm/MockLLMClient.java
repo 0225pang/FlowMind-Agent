@@ -1,12 +1,12 @@
 package com.flowmind.agent.llm;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Component;
 
 import java.util.function.Consumer;
 
 @Component
-@ConditionalOnProperty(prefix = "flowmind.llm", name = "provider", havingValue = "mock", matchIfMissing = true)
+@ConditionalOnExpression("'${flowmind.llm.provider:deepseek}' == 'mock' || !T(org.springframework.util.StringUtils).hasText('${flowmind.llm.api-key:}') || '${flowmind.llm.api-key:}'.contains('PUT_YOUR')")
 public class MockLLMClient implements LLMClient {
     @Override
     public String complete(String systemPrompt, String userPrompt) {

@@ -29,6 +29,8 @@ public class KnowledgeSyncInitializer implements ApplicationRunner {
         try {
             var result = knowledgeService.syncFromFeishu();
             log.info("Startup sync result: {}", result);
+            var reindexResult = knowledgeService.reindexMissingWeaviateDocs();
+            log.info("Startup missing Weaviate reindex result: {}", reindexResult);
         } catch (Exception e) {
             log.warn("Startup sync failed (non-fatal): {}", e.getMessage());
         }

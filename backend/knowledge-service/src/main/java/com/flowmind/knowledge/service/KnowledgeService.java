@@ -105,6 +105,7 @@ public class KnowledgeService {
 
                     // ── Change detection: skip if Feishu modified_time hasn't changed ──
                     if (existing.isPresent() && existing.get().getFeishuModifiedAt() >= modifiedAt) {
+                        pushToWeaviateIfMissing(existing.get());
                         skipped++;
                         continue;
                     }
@@ -204,6 +205,38 @@ public class KnowledgeService {
 
     // ── PDF handling ──
 
+    public Map<String, Object> reindexMissingWeaviateDocs() {
+        if (!weaviateClient.isEnabled()) {
+            return Map.of("status", "skipped", "message", "Weaviate not enabled", "indexed", 0, "skipped", 0, "errors", 0);
+        }
+
+        int indexed = 0;
+        int skipped = 0;
+        int errors = 0;
+        for (KnowledgeDocEntity doc : searchDocs("")) {
+            try {
+                if (doc.getFeishuToken() == null || doc.getFeishuToken().isBlank()) {
+                    skipped++;
+                    continue;
+                }
+                if (weaviateClient.existsByFeishuToken(doc.getFeishuToken())) {
+                    skipped++;
+                    continue;
+                }
+                int inserted = pushToWeaviate(doc);
+                if (inserted > 0) {
+                    indexed++;
+                } else {
+                    skipped++;
+                }
+            } catch (Exception e) {
+                errors++;
+                log.warn("Missing Weaviate reindex failed for doc {}: {}", doc.getId(), e.getMessage());
+            }
+        }
+        return Map.of("status", "ok", "indexed", indexed, "skipped", skipped, "errors", errors);
+    }
+
     private final Path pdfDownloadDir = Path.of(
             System.getProperty("user.dir"), "pdf-downloads");
 
@@ -238,22 +271,31 @@ public class KnowledgeService {
 
     private final TextChunker chunker = new TextChunker(800, 100, 50);
 
-    private void pushToWeaviate(KnowledgeDocEntity doc) {
-        if (!weaviateClient.isEnabled()) return;
+    private void pushToWeaviateIfMissing(KnowledgeDocEntity doc) {
+        if (!weaviateClient.isEnabled() || doc == null) return;
+        String token = doc.getFeishuToken();
+        if (token == null || token.isBlank()) return;
+        if (!weaviateClient.existsByFeishuToken(token)) {
+            pushToWeaviate(doc);
+        }
+    }
+
+    private int pushToWeaviate(KnowledgeDocEntity doc) {
+        if (!weaviateClient.isEnabled()) return 0;
         if (doc.getId() == null) {
             log.warn("Weaviate push skipped: doc has no ID (feishuToken={})", doc.getFeishuToken());
-            return;
+            return 0;
         }
         try {
-            List<String> chunks = chunker.chunk(doc.getTitle(), doc.getContent());
-            if (chunks.isEmpty()) return;
+            List<String> chunks = chunker.chunk(doc.getTitle(), firstNonBlank(doc.getContent(), doc.getSummary()));
+            if (chunks.isEmpty()) return 0;
 
             List<float[]> vectors = new ArrayList<>();
             for (String chunk : chunks) {
                 float[] vec = embeddingService.embed(chunk);
                 if (vec.length == 0) {
                     log.warn("Empty embedding for chunk, skipping entire doc {}", doc.getId());
-                    return;   // skip whole doc if any chunk fails
+                    return 0;   // skip whole doc if any chunk fails
                 }
                 vectors.add(vec);
             }
@@ -270,9 +312,16 @@ public class KnowledgeService {
             if (inserted > 0) {
                 log.info("Weaviate: pushed {} chunks for doc id={}", inserted, doc.getId());
             }
+            return inserted;
         } catch (Exception e) {
             log.warn("Weaviate push failed for doc {}: {}", doc.getId(), e.getMessage());
+            return 0;
         }
+    }
+
+    private String firstNonBlank(String first, String second) {
+        if (first != null && !first.isBlank()) return first;
+        return second == null ? "" : second;
     }
 
     private List<String> parseTags(String raw) {

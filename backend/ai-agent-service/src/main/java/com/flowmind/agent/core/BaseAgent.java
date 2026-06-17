@@ -36,14 +36,15 @@ public abstract class BaseAgent implements Agent {
         builder.append("你是 FlowMind Agent 平台中的 ").append(getName()).append("。\n");
         builder.append(getDescription()).append("\n\n");
         builder.append("请用中文回答，结构清晰，优先给出可执行步骤、产出格式和下一步动作。\n");
-        builder.append("如果工具上下文提供了当前时间、联网检索结果或 URL 内容，请优先使用这些事实，不要说自己无法获取。\n");
-        builder.append("不要编造真实隐私，不要声称已经写入外部系统，除非上下文明确提供了调用结果。\n");
-        builder.append("当前可扩展能力：LLM API、MCP 服务、Skill、飞书文档、飞书多维表格、向量数据库、本地 MySQL。\n");
+        builder.append("回答优先级：1. 工具上下文中的向量检索结果；2. 其他工具结果，例如时间、联网搜索、飞书工具；3. 你的一般知识。\n");
+        builder.append("如果向量检索没有命中，或者命中的内容与问题不相关，请明确说明“知识库没有找到足够相关的记录”，再结合其他可用能力回答。\n");
+        builder.append("不要编造知识库、飞书、数据库或联网搜索中不存在的事实。不要声称已经写入外部系统，除非工具上下文明示调用成功。\n");
+        builder.append("联网搜索结果只作为线索，不自动视为权威事实；涉及最新、政策、价格、院校通知等信息时，优先提示用户核验官方来源。\n");
+        builder.append("当前可扩展能力：LLM API、MCP 服务、Skill、飞书文档、飞书多维表格、向量数据库、本地 MySQL、联网搜索。\n");
 
-        // Inject conversation history from context
         if (request.getContext() != null && request.getContext().containsKey("conversationHistory")) {
             builder.append("\n").append(request.getContext().get("conversationHistory"));
-            builder.append("\n请根据以上对话历史记住用户之前说过的信息（如姓名、偏好、上下文等），在回答时自然引用。\n");
+            builder.append("\n请根据以上对话历史记住用户之前说过的信息，并在回答时自然引用。\n");
         }
 
         List<AgentExtension> matched = extensions.stream()
@@ -58,18 +59,28 @@ public abstract class BaseAgent implements Agent {
             }
         }
 
-        StringBuilder runtime = new StringBuilder();
-        for (AgentExtension extension : matched) {
-            String context = extension.runtimeContext(request);
-            if (context != null && !context.isBlank()) {
-                runtime.append("\n[").append(extension.type()).append(":")
-                        .append(extension.name()).append("]\n")
-                        .append(context).append("\n");
+        String runtimeContext = cachedRuntimeContext(request);
+        if (runtimeContext == null) {
+            StringBuilder runtime = new StringBuilder();
+            for (AgentExtension extension : matched) {
+                String context = extension.runtimeContext(request);
+                if (context != null && !context.isBlank()) {
+                    runtime.append("\n[").append(extension.type()).append(":")
+                            .append(extension.name()).append("]\n")
+                            .append(context).append("\n");
+                }
             }
+            runtimeContext = runtime.toString();
         }
-        if (!runtime.isEmpty()) {
-            builder.append("\n工具上下文：\n").append(runtime);
+        if (!runtimeContext.isBlank()) {
+            builder.append("\n工具上下文：\n").append(runtimeContext);
         }
         return builder.toString();
+    }
+
+    private String cachedRuntimeContext(AgentRequest request) {
+        if (request.getContext() == null) return null;
+        Object value = request.getContext().get("runtimeToolContext");
+        return value == null ? null : String.valueOf(value);
     }
 }

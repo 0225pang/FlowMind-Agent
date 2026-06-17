@@ -29,6 +29,9 @@ public class VectorSearchToolService {
     @Value("${flowmind.vector-demo.max-top-k:20}")
     private int maxTopK;
 
+    @Value("${flowmind.vector-demo.max-distance:0.65}")
+    private float maxDistance;
+
     public VectorSearchToolService(EmbeddingService embeddingService,
                                    WeaviateClientService weaviateClient,
                                    KnowledgeService knowledgeService) {
@@ -48,6 +51,7 @@ public class VectorSearchToolService {
             float[] vector = embeddingService.embed(query);
             if (vector.length > 0) {
                 List<VectorSearchResult> hits = weaviateClient.search(vector, limit).stream()
+                        .filter(hit -> hit.distance() <= maxDistance)
                         .map(this::fromVectorHit)
                         .toList();
                 if (!hits.isEmpty()) {

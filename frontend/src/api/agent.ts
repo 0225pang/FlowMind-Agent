@@ -11,6 +11,15 @@ export interface AgentCard {
   [key: string]: unknown
 }
 
+export interface AgentTraceItem {
+  name: string
+  type: string
+  status: 'used' | 'skipped' | 'failed' | string
+  durationMs?: number
+  summary?: string
+  detail?: string
+}
+
 export interface AgentChatResponse {
   agentType: string
   reply: string
@@ -113,7 +122,9 @@ export async function chatWithAgent(payload: AgentChatRequest) {
 export async function streamAgentChat(
   payload: AgentChatRequest,
   onDelta: (text: string) => void,
-  onSession?: (sessionId: string) => void
+  onSession?: (sessionId: string) => void,
+  onTrace?: (items: AgentTraceItem[]) => void,
+  onReasoning?: (text: string) => void
 ) {
   const response = await fetch(`${API_BASE}/chat/stream`, {
     method: 'POST',
@@ -143,6 +154,14 @@ export async function streamAgentChat(
         if (typeof content === 'string' && content.length > 0 && content !== 'null') {
           onDelta(content)
         }
+      }
+      if (event.event === 'trace' && onTrace) {
+        const items = Array.isArray(event.data?.items) ? event.data.items : []
+        onTrace(items)
+      }
+      if (event.event === 'reasoning' && onReasoning) {
+        const content = event.data?.content
+        if (typeof content === 'string') onReasoning(content)
       }
       if (event.event === 'done' && event.data?.sessionId && onSession) {
         onSession(event.data.sessionId)

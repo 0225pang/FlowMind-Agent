@@ -5,6 +5,7 @@ import com.flowmind.agent.dto.AgentResponse;
 import com.flowmind.agent.entity.AgentSessionEntity;
 import com.flowmind.agent.entity.ConversationEntity;
 import com.flowmind.agent.service.AgentRouter;
+import com.flowmind.agent.service.AgentTraceService;
 import com.flowmind.agent.service.ConversationService;
 import com.flowmind.common.core.ApiResponse;
 import org.slf4j.Logger;
@@ -26,10 +27,12 @@ public class AgentController {
 
     private final AgentRouter router;
     private final ConversationService conversationService;
+    private final AgentTraceService traceService;
 
-    public AgentController(AgentRouter router, ConversationService conversationService) {
+    public AgentController(AgentRouter router, ConversationService conversationService, AgentTraceService traceService) {
         this.router = router;
         this.conversationService = conversationService;
+        this.traceService = traceService;
     }
 
     @GetMapping
@@ -93,7 +96,10 @@ public class AgentController {
                     "user", request.getMessage());
         }
         AgentRequest enriched = enrichWithHistory(request, sessionId);
+        String resolvedAgentType = router.resolveAgentType(enriched);
+        AgentTraceService.TraceBundle trace = traceService.collect(enriched, resolvedAgentType);
         AgentResponse response = router.route(enriched);
+        response.setCards(appendTraceCards(response.getCards(), trace));
         if (hasText(request.getSessionId())) {
             int turn = conversationService.nextTurnIndex(request.getAgentTypeOrDefault(), sessionId);
             conversationService.saveMessage(request.getAgentTypeOrDefault(), sessionId, turn,
@@ -118,6 +124,10 @@ public class AgentController {
         CompletableFuture.runAsync(() -> {
             try {
                 send(emitter, "session", Map.of("sessionId", sessionId));
+                String resolvedAgentType = router.resolveAgentType(enriched);
+                AgentTraceService.TraceBundle trace = traceService.collect(enriched, resolvedAgentType);
+                send(emitter, "trace", Map.of("items", trace.items(), "agentType", resolvedAgentType));
+                send(emitter, "reasoning", Map.of("content", trace.reasoning()));
                 router.stream(enriched, delta -> {
                     fullReply.append(delta);
                     send(emitter, "delta", Map.of("content", delta));
@@ -174,6 +184,14 @@ public class AgentController {
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    private List<Map<String, Object>> appendTraceCards(List<Map<String, Object>> cards, AgentTraceService.TraceBundle trace) {
+        List<Map<String, Object>> result = new java.util.ArrayList<>();
+        if (cards != null) result.addAll(cards);
+        result.add(Map.of("type", "trace", "title", "工具调用", "items", trace.items()));
+        result.add(Map.of("type", "reasoning", "title", "推理摘要", "content", trace.reasoning()));
+        return result;
     }
 
     private boolean hasText(String s) { return s != null && !s.isBlank(); }
