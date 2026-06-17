@@ -49,7 +49,39 @@ If port `8080` is occupied:
 
 The backend does not use a DeepSeek SDK. It uses `OpenAiCompatibleLLMClient`, so DeepSeek, OpenAI-compatible gateways, and local OpenAI-compatible models can share the same client.
 
-Because DeepSeek is now the default provider, you only need to provide an API key.
+Because DeepSeek is now the default provider, you only need to provide an API key. The recommended local setup is `application-local.yml`, which is ignored by Git and is imported automatically by `application.yml`.
+
+### Recommended: local private config
+
+Create a local config file:
+
+```powershell
+Copy-Item .\app-service\src\main\resources\application-local.template.yml .\app-service\src\main\resources\application-local.yml
+```
+
+Edit:
+
+```text
+app-service/src/main/resources/application-local.yml
+```
+
+Set your private keys:
+
+```yaml
+flowmind:
+  llm:
+    api-key: your_deepseek_api_key
+  embedding:
+    api-key: your_embedding_api_key
+```
+
+Then keep using the normal startup command:
+
+```powershell
+.\mvnw.cmd -s maven-settings.xml -pl app-service -am spring-boot:run
+```
+
+`application-local.yml` is listed in `.gitignore`, so it should not be committed.
 
 ### Option A: Direct command
 
@@ -105,6 +137,27 @@ With another port:
 ```powershell
 .\mvnw.cmd -s maven-settings.xml -pl app-service -am spring-boot:run "-Dspring-boot.run.arguments=--spring.profiles.active=deepseek --server.port=18080"
 ```
+
+## 3.1 If an API Key Was Accidentally Pushed
+
+Do this immediately:
+
+1. Revoke or rotate the leaked key in the provider console. Removing it from Git does not make the old key safe.
+2. Remove the key from tracked files and put it in `application-local.yml`.
+3. If the file is already tracked by Git, untrack only that file:
+
+```powershell
+git rm --cached app-service/src/main/resources/application-local.yml
+```
+
+4. Commit the cleanup:
+
+```powershell
+git add app-service/src/main/resources/application.yml app-service/src/main/resources/application-local.template.yml ..\.gitignore README.md
+git commit -m "chore: move api keys to local config"
+```
+
+If the real key already exists in public GitHub history, rotate the key first. History rewriting can remove the text from old commits, but it cannot make the exposed key trustworthy again.
 
 ## 4. Verify LLM Mode
 

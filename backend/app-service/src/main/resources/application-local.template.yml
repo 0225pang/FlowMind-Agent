@@ -1,0 +1,5 @@
+flowmind:
+  llm:
+    api-key: your_deepseek_api_key
+  embedding:
+    api-key: your_embedding_api_key

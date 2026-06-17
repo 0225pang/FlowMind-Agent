@@ -4,6 +4,8 @@ server:
 spring:
   application:
     name: flowmind-app-service
+  config:
+    import: optional:classpath:application-local.yml
   jackson:
     time-zone: Asia/Shanghai
     date-format: yyyy-MM-dd HH:mm:ss
@@ -25,8 +27,8 @@ flowmind:
     provider: deepseek
     base-url: https://api.deepseek.com
     chat-path: /chat/completions
-    model: deepseek-reasoner
-    api-key: sk-6e80807ed21c44cc90fc124445e38865
+    model: deepseek-v4-flash
+    api-key: ${FLOWMIND_LLM_API_KEY:}
     temperature: 0.7
     max-tokens: 4096
   tools:
@@ -45,7 +47,7 @@ flowmind:
       url: https://ycn1ft0idflw.feishu.cn/drive/folder/KELsfW0jvlHcVqdiuTncQ66Lnnc
   embedding:
     provider: dashscope
-    api-key: sk-ws-H.REYXIEE.s9Gp.MEYCIQC91wjQTTwakFFenO7y9TXn-hv3T-k-AjsKG9vkLZ4FKQIhAMmICW8qdzRgvpbOJOcZXypXab0LpS5k_ZFHAi-iOVuG
+    api-key: ${FLOWMIND_EMBEDDING_API_KEY:}
     model: text-embedding-v4
   weaviate:
     enabled: true

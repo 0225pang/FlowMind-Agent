@@ -23,6 +23,8 @@ Thumbs.db
 
 # === Secrets — 包含 API Key 的配置文件 ===
 backend/app-service/src/main/resources/application-deepseek.yml
+backend/app-service/src/main/resources/application-local.yml
+backend/app-service/src/main/resources/application-secret.yml
 
 # === Runtime artifacts ===
 *.log
