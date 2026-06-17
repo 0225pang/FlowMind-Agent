@@ -1,12 +1,17 @@
 <template>
   <div :class="['msg', role]">
     <div class="avatar">{{ role === 'user' ? 'U' : 'AI' }}</div>
-    <div class="bubble">
-      <div v-if="role === 'assistant' && hasTrace" class="trace-wrap">
-        <details class="trace-panel">
+    <div class="msg-main">
+      <div v-if="role === 'assistant' && thinking" class="thinking-line">
+        <span class="pulse" />
+        <span>{{ thinking }}</span>
+      </div>
+
+      <div class="bubble">
+        <details v-if="role === 'assistant' && hasTrace" class="trace-panel">
           <summary>工具调用过程</summary>
           <div class="trace-list">
-            <div v-for="(item, index) in traceItems" :key="index" class="trace-item">
+            <div v-for="(item, index) in usedTraceItems" :key="index" class="trace-item">
               <div class="trace-head">
                 <span class="dot" :class="item.status" />
                 <strong>{{ item.name }}</strong>
@@ -15,25 +20,20 @@
               </div>
               <p>{{ item.summary || statusText(item.status) }}</p>
               <details v-if="item.detail" class="trace-detail">
-                <summary>查看结果</summary>
+                <summary>查看查到的结果</summary>
                 <pre>{{ item.detail }}</pre>
               </details>
             </div>
           </div>
         </details>
 
-        <details v-if="reasoning" class="trace-panel reasoning">
-          <summary>推理摘要</summary>
-          <pre>{{ reasoning }}</pre>
-        </details>
-      </div>
-
-      <div class="content" v-html="renderedContent" />
-      <span v-if="streaming" class="cursor" />
-      <div v-if="cards?.length" class="cards">
-        <div v-for="(card, index) in cards" :key="index" class="mini">
-          <strong>{{ card.title || card.agent || card.name || '建议' }}</strong>
-          <span>{{ card.content || card.sop || card.summary || card.description || JSON.stringify(card) }}</span>
+        <div class="content" v-html="renderedContent" />
+        <span v-if="streaming" class="cursor" />
+        <div v-if="cards?.length" class="cards">
+          <div v-for="(card, index) in visibleCards" :key="index" class="mini">
+            <strong>{{ card.title || card.agent || card.name || '建议' }}</strong>
+            <span>{{ card.content || card.sop || card.summary || card.description || JSON.stringify(card) }}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -51,11 +51,13 @@ const props = defineProps<{
   cards?: Record<string, unknown>[]
   streaming?: boolean
   traceItems?: AgentTraceItem[]
-  reasoning?: string
+  thinking?: string
 }>()
 
 const renderedContent = computed(() => renderMarkdown(props.content || (props.streaming ? '正在生成...' : '')))
-const hasTrace = computed(() => Array.isArray(props.traceItems) && props.traceItems.length > 0)
+const usedTraceItems = computed(() => (props.traceItems || []).filter(item => item.status !== 'skipped'))
+const hasTrace = computed(() => usedTraceItems.value.length > 0)
+const visibleCards = computed(() => (props.cards || []).filter(card => card.type !== 'trace' && card.type !== 'thinking'))
 
 function statusText(status: string) {
   if (status === 'used') return '已调用并返回上下文。'
@@ -76,6 +78,16 @@ function statusText(status: string) {
   flex-direction: row-reverse;
 }
 
+.msg-main {
+  max-width: min(76%, 920px);
+  min-width: 0;
+}
+
+.user .msg-main {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .avatar {
   width: 34px;
   height: 34px;
@@ -94,13 +106,33 @@ function statusText(status: string) {
   color: #fff;
 }
 
+.thinking-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 7px 2px;
+  color: #98a2b3;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #8b5cf6;
+  box-shadow: 0 0 0 0 rgba(139, 92, 246, .35);
+  animation: pulse 1.2s infinite;
+}
+
 .bubble {
-  max-width: 76%;
+  width: 100%;
   border: 1px solid #e7ebf3;
   border-radius: 8px;
   padding: 14px 16px;
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 10px 30px rgba(21, 32, 51, 0.06);
+  overflow-wrap: anywhere;
 }
 
 .user .bubble {
@@ -109,22 +141,22 @@ function statusText(status: string) {
   color: #fff;
 }
 
-.trace-wrap {
-  display: grid;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
 .trace-panel {
+  max-height: 320px;
+  overflow: auto;
+  margin-bottom: 12px;
   border: 1px solid #dfe5f2;
   border-radius: 8px;
   background: #f8faff;
-  overflow: hidden;
 }
 
 .trace-panel summary {
   cursor: pointer;
+  position: sticky;
+  top: 0;
+  z-index: 1;
   padding: 9px 11px;
+  background: #f8faff;
   color: #344054;
   font-size: 12px;
   font-weight: 700;
@@ -189,14 +221,15 @@ function statusText(status: string) {
 }
 
 .trace-detail summary {
+  position: static;
   padding: 0;
   color: #5b6cff;
   font-weight: 600;
 }
 
-.trace-panel pre {
-  margin: 8px 10px 10px;
-  max-height: 220px;
+.trace-detail pre {
+  margin: 8px 0 0;
+  max-height: 180px;
   overflow: auto;
   white-space: pre-wrap;
   border-radius: 8px;
@@ -205,10 +238,6 @@ function statusText(status: string) {
   color: #e2e8f0;
   font-size: 12px;
   line-height: 1.55;
-}
-
-.trace-detail pre {
-  margin: 8px 0 0;
 }
 
 .content {
@@ -375,8 +404,14 @@ function statusText(status: string) {
   46%, 100% { opacity: 0; }
 }
 
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 rgba(139, 92, 246, .35); }
+  70% { box-shadow: 0 0 0 7px rgba(139, 92, 246, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
+}
+
 @media (max-width: 760px) {
-  .bubble {
+  .msg-main {
     max-width: 92%;
   }
 

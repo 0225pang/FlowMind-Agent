@@ -124,7 +124,7 @@ export async function streamAgentChat(
   onDelta: (text: string) => void,
   onSession?: (sessionId: string) => void,
   onTrace?: (items: AgentTraceItem[]) => void,
-  onReasoning?: (text: string) => void
+  onThinking?: (text: string) => void
 ) {
   const response = await fetch(`${API_BASE}/chat/stream`, {
     method: 'POST',
@@ -159,9 +159,9 @@ export async function streamAgentChat(
         const items = Array.isArray(event.data?.items) ? event.data.items : []
         onTrace(items)
       }
-      if (event.event === 'reasoning' && onReasoning) {
+      if (event.event === 'thinking' && onThinking) {
         const content = event.data?.content
-        if (typeof content === 'string') onReasoning(content)
+        if (typeof content === 'string') onThinking(content)
       }
       if (event.event === 'done' && event.data?.sessionId && onSession) {
         onSession(event.data.sessionId)

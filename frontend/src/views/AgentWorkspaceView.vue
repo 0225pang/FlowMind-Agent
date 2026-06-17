@@ -31,7 +31,6 @@ const sessions = ref<Array<{ id: string; title: string; time: string; agentType:
 
 onMounted(async () => {
   await loadSessions()
-  // Auto-activate the most recent session, or create one so first message isn't swallowed
   if (sessions.value.length > 0) {
     currentSessionId.value = sessions.value[0].id
   } else {
@@ -44,7 +43,7 @@ async function loadSessions() {
     const list = await listSessions()
     sessions.value = list.map(s => ({
       id: s.id,
-      title: s.title || '新对话',
+      title: s.title || '新会话',
       time: s.updatedAt || s.createdAt || new Date().toISOString(),
       agentType: s.agentType || 'auto'
     }))
@@ -83,7 +82,27 @@ function onMessageSent() {
 </script>
 
 <style scoped>
-.workspace{display:flex;flex-direction:column;gap:0;height:calc(100vh - 144px)}
-.workspace-body{flex:1;display:grid;grid-template-columns:200px minmax(0,1fr);gap:12px;min-height:0}
-@media(max-width:1024px){.workspace-body{grid-template-columns:1fr;gap:10px}}
+.workspace {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.workspace-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(168px, 220px) minmax(0, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 1024px) {
+  .workspace-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 10px;
+  }
+}
 </style>

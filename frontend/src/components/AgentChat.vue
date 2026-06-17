@@ -9,7 +9,7 @@
         :cards="msg.cards"
         :streaming="msg.streaming"
         :trace-items="msg.traceItems"
-        :reasoning="msg.reasoning"
+        :thinking="msg.thinking"
       />
     </div>
 
@@ -49,7 +49,7 @@ interface ChatItem {
   cards?: AgentCard[]
   streaming?: boolean
   traceItems?: AgentTraceItem[]
-  reasoning?: string
+  thinking?: string
 }
 
 const input = ref('')
@@ -115,7 +115,15 @@ async function send(text: string) {
   input.value = ''
   loading.value = true
 
-  const am: ChatItem = { id: Date.now() + 1, role: 'assistant', content: '', cards: [], streaming: true, traceItems: [], reasoning: '' }
+  const am: ChatItem = {
+    id: Date.now() + 1,
+    role: 'assistant',
+    content: '',
+    cards: [],
+    streaming: true,
+    traceItems: [],
+    thinking: '正在准备...'
+  }
   messages.value.push(am)
   await scrollToBottom()
 
@@ -137,8 +145,8 @@ async function send(text: string) {
     }, async traceItems => {
       am.traceItems = traceItems
       await scrollToBottom()
-    }, async reasoning => {
-      am.reasoning = reasoning
+    }, async thinking => {
+      am.thinking = thinking
       await scrollToBottom()
     })
 
@@ -170,12 +178,67 @@ defineExpose({ send })
 </script>
 
 <style scoped>
-.chat{height:100%;display:flex;flex-direction:column;overflow:hidden;border:1px solid rgba(91,108,255,.12);border-radius:8px;background:radial-gradient(circle at 12% 0%,rgba(91,108,255,.10),transparent 28%),linear-gradient(180deg,#ffffff 0%,#fbfcff 100%)}
-.messages{flex:1;overflow:auto;padding:16px}
-.prompts{display:flex;flex-wrap:wrap;gap:8px;padding:0 16px 10px;flex-shrink:0}
-.prompts button{min-height:32px;border:1px solid #dfe5f2;border-radius:999px;padding:0 12px;background:#fff;color:#475467;cursor:pointer;font-size:12px;transition:border-color .16s,color .16s,transform .16s}
-.prompts button:hover{border-color:#5b6cff;color:#5b6cff;transform:translateY(-1px)}
-.composer{display:flex;gap:10px;border-top:1px solid #e7ebf3;padding:12px 16px;background:#fff;flex-shrink:0}
-.composer-input{flex:1}
-.composer .el-button{height:40px;min-width:88px}
+.chat {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(91,108,255,.12);
+  border-radius: 8px;
+  background: radial-gradient(circle at 12% 0%,rgba(91,108,255,.10),transparent 28%),linear-gradient(180deg,#ffffff 0%,#fbfcff 100%);
+}
+
+.messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px;
+  scroll-padding-bottom: 24px;
+}
+
+.prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 16px 10px;
+  flex-shrink: 0;
+}
+
+.prompts button {
+  min-height: 32px;
+  border: 1px solid #dfe5f2;
+  border-radius: 999px;
+  padding: 0 12px;
+  background: #fff;
+  color: #475467;
+  cursor: pointer;
+  font-size: 12px;
+  transition: border-color .16s, color .16s, transform .16s;
+}
+
+.prompts button:hover {
+  border-color: #5b6cff;
+  color: #5b6cff;
+  transform: translateY(-1px);
+}
+
+.composer {
+  display: flex;
+  gap: 10px;
+  border-top: 1px solid #e7ebf3;
+  padding: 12px 16px;
+  background: #fff;
+  flex-shrink: 0;
+}
+
+.composer-input {
+  flex: 1;
+}
+
+.composer .el-button {
+  height: 40px;
+  min-width: 88px;
+}
 </style>

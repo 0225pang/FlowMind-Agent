@@ -4,7 +4,6 @@ import com.flowmind.agent.dto.AgentRequest;
 import com.flowmind.agent.extension.AgentExtension;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -19,7 +18,7 @@ public class AgentTraceService {
     }
 
     public TraceBundle collect(AgentRequest request, String agentType) {
-        List<Map<String, Object>> items = new ArrayList<>();
+        List<Map<String, Object>> visibleItems = new ArrayList<>();
         StringBuilder runtimeContext = new StringBuilder();
 
         List<AgentExtension> matched = extensions.stream()
@@ -29,7 +28,7 @@ public class AgentTraceService {
         for (AgentExtension extension : matched) {
             long started = System.currentTimeMillis();
             String context = "";
-            String status = "skipped";
+            String status;
             try {
                 context = extension.runtimeContext(request);
                 status = context == null || context.isBlank() ? "skipped" : "used";
@@ -44,28 +43,30 @@ public class AgentTraceService {
                         .append(context).append("\n");
             }
 
-            Map<String, Object> item = new HashMap<>();
-            item.put("name", extension.name());
-            item.put("type", extension.type());
-            item.put("status", status);
-            item.put("durationMs", System.currentTimeMillis() - started);
-            item.put("summary", summarize(context));
-            item.put("detail", context == null ? "" : context);
-            items.add(item);
+            if (!"skipped".equals(status)) {
+                Map<String, Object> item = new HashMap<>();
+                item.put("name", extension.name());
+                item.put("type", extension.type());
+                item.put("status", status);
+                item.put("durationMs", System.currentTimeMillis() - started);
+                item.put("summary", summarize(context));
+                item.put("detail", context == null ? "" : context);
+                visibleItems.add(item);
+            }
         }
 
         Map<String, Object> c = request.getContext();
         if (c == null) c = new HashMap<>();
         c.put("runtimeToolContext", runtimeContext.toString());
-        c.put("traceItems", items);
+        c.put("traceItems", visibleItems);
         request.setContext(c);
 
-        return new TraceBundle(items, reasoningSummary(items, agentType), runtimeContext.toString());
+        return new TraceBundle(visibleItems, thinkingStatus(visibleItems, agentType), runtimeContext.toString());
     }
 
     private String summarize(String context) {
         if (context == null || context.isBlank()) {
-            return "未触发。";
+            return "未返回上下文。";
         }
         String firstLine = context.lines()
                 .filter(line -> line != null && !line.isBlank())
@@ -74,18 +75,15 @@ public class AgentTraceService {
         return trim(firstLine, 160);
     }
 
-    private String reasoningSummary(List<Map<String, Object>> items, String agentType) {
-        long used = items.stream().filter(item -> "used".equals(item.get("status"))).count();
-        StringBuilder builder = new StringBuilder();
-        builder.append("本轮先选择 Agent：").append(agentType).append("。\n");
-        builder.append("随后先检查向量知识库，再检查飞书、联网搜索、时间等扩展能力。\n");
-        if (used == 0) {
-            builder.append("没有工具返回可用上下文，回答会主要依赖模型通用知识，并提示不确定处。");
-        } else {
-            builder.append("共有 ").append(used).append(" 个工具返回上下文，模型回答会优先基于这些上下文生成。");
+    private String thinkingStatus(List<Map<String, Object>> items, String agentType) {
+        if (items.isEmpty()) {
+            return "已选择 " + agentType + "，未获得外部工具上下文，正在生成回答。";
         }
-        builder.append("\n生成时间：").append(LocalDateTime.now()).append("。");
-        return builder.toString();
+        long used = items.stream().filter(item -> "used".equals(item.get("status"))).count();
+        long failed = items.stream().filter(item -> "failed".equals(item.get("status"))).count();
+        return "已选择 " + agentType + "，调用 " + used + " 个工具"
+                + (failed > 0 ? "，" + failed + " 个工具失败" : "")
+                + "，正在基于可用结果生成回答。";
     }
 
     private String trim(String text, int max) {
@@ -93,5 +91,5 @@ public class AgentTraceService {
         return text.length() <= max ? text : text.substring(0, max) + "...";
     }
 
-    public record TraceBundle(List<Map<String, Object>> items, String reasoning, String runtimeContext) {}
+    public record TraceBundle(List<Map<String, Object>> items, String thinking, String runtimeContext) {}
 }

@@ -40,15 +40,13 @@ public class AgentController {
         return ApiResponse.success(router.listAgents());
     }
 
-    // ---- Sessions (like Doubao left panel) ----
-
     @GetMapping("/sessions")
     public ApiResponse<?> listSessions() {
         List<AgentSessionEntity> sessions = conversationService.listSessions();
         List<Map<String, Object>> result = sessions.stream().map(s -> {
             Map<String, Object> m = new HashMap<>();
             m.put("id", s.getSessionId());
-            m.put("title", s.getTitle() != null ? s.getTitle() : "无标题");
+            m.put("title", s.getTitle() != null ? s.getTitle() : "新会话");
             m.put("agentType", s.getAgentType());
             m.put("turnCount", s.getTurnCount());
             m.put("createdAt", s.getCreatedAt() != null ? s.getCreatedAt().toString() : null);
@@ -64,18 +62,14 @@ public class AgentController {
         return ApiResponse.success(Map.of("ok", true));
     }
 
-    // ---- Conversation history ----
-
     @GetMapping("/conversations/{agentType}/{sessionId}")
-    public ApiResponse<?> loadHistory(@PathVariable String agentType,
-                                       @PathVariable String sessionId) {
+    public ApiResponse<?> loadHistory(@PathVariable String agentType, @PathVariable String sessionId) {
         List<ConversationEntity> history = conversationService.loadHistory(agentType, sessionId);
         return ApiResponse.success(history);
     }
 
     @DeleteMapping("/conversations/{agentType}/{sessionId}")
-    public ApiResponse<?> clearHistory(@PathVariable String agentType,
-                                        @PathVariable String sessionId) {
+    public ApiResponse<?> clearHistory(@PathVariable String agentType, @PathVariable String sessionId) {
         conversationService.clearSession(agentType, sessionId);
         return ApiResponse.success(Map.of("ok", true));
     }
@@ -85,26 +79,18 @@ public class AgentController {
         return ApiResponse.success(Map.of("sessionId", conversationService.newSessionId()));
     }
 
-    // ---- Chat ----
-
     @PostMapping("/chat")
     public ApiResponse<?> chat(@RequestBody AgentRequest request) {
         String sessionId = getOrCreateSession(request);
-        if (hasText(request.getSessionId())) {
-            int turn = conversationService.nextTurnIndex(request.getAgentTypeOrDefault(), sessionId);
-            conversationService.saveMessage(request.getAgentTypeOrDefault(), sessionId, turn,
-                    "user", request.getMessage());
-        }
+        saveUserMessage(request, sessionId);
+
         AgentRequest enriched = enrichWithHistory(request, sessionId);
         String resolvedAgentType = router.resolveAgentType(enriched);
         AgentTraceService.TraceBundle trace = traceService.collect(enriched, resolvedAgentType);
         AgentResponse response = router.route(enriched);
         response.setCards(appendTraceCards(response.getCards(), trace));
-        if (hasText(request.getSessionId())) {
-            int turn = conversationService.nextTurnIndex(request.getAgentTypeOrDefault(), sessionId);
-            conversationService.saveMessage(request.getAgentTypeOrDefault(), sessionId, turn,
-                    "assistant", response.getReply());
-        }
+
+        saveAssistantMessage(request, sessionId, response.getReply());
         response.setSessionId(sessionId);
         return ApiResponse.success(response);
     }
@@ -112,32 +98,30 @@ public class AgentController {
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamChat(@RequestBody AgentRequest request) {
         String sessionId = getOrCreateSession(request);
-        // Save user message
-        if (hasText(request.getSessionId())) {
-            int turn = conversationService.nextTurnIndex(request.getAgentTypeOrDefault(), sessionId);
-            conversationService.saveMessage(request.getAgentTypeOrDefault(), sessionId, turn,
-                    "user", request.getMessage());
-        }
+        saveUserMessage(request, sessionId);
+
         AgentRequest enriched = enrichWithHistory(request, sessionId);
         SseEmitter emitter = new SseEmitter(300_000L);
         StringBuilder fullReply = new StringBuilder();
+
         CompletableFuture.runAsync(() -> {
             try {
                 send(emitter, "session", Map.of("sessionId", sessionId));
+
                 String resolvedAgentType = router.resolveAgentType(enriched);
+                send(emitter, "thinking", Map.of("content", "已选择 " + resolvedAgentType + "，正在查询向量知识库和可用工具..."));
+
                 AgentTraceService.TraceBundle trace = traceService.collect(enriched, resolvedAgentType);
                 send(emitter, "trace", Map.of("items", trace.items(), "agentType", resolvedAgentType));
-                send(emitter, "reasoning", Map.of("content", trace.reasoning()));
+                send(emitter, "thinking", Map.of("content", trace.thinking()));
+
                 router.stream(enriched, delta -> {
                     fullReply.append(delta);
                     send(emitter, "delta", Map.of("content", delta));
                 });
-                // Save assistant reply
-                if (hasText(request.getSessionId())) {
-                    int turn = conversationService.nextTurnIndex(request.getAgentTypeOrDefault(), sessionId);
-                    conversationService.saveMessage(request.getAgentTypeOrDefault(), sessionId, turn,
-                            "assistant", fullReply.toString());
-                }
+
+                saveAssistantMessage(request, sessionId, fullReply.toString());
+                send(emitter, "thinking", Map.of("content", "回答完成。"));
                 send(emitter, "done", Map.of("ok", true, "sessionId", sessionId));
                 emitter.complete();
             } catch (Exception e) {
@@ -150,15 +134,13 @@ public class AgentController {
         return emitter;
     }
 
-    // ---- Helpers ----
-
     private AgentRequest enrichWithHistory(AgentRequest request, String sessionId) {
         if (!hasText(request.getSessionId())) return request;
         String agentType = request.getAgentTypeOrDefault();
         List<ConversationEntity> history = conversationService.loadRecentContext(agentType, sessionId, 100);
         if (!history.isEmpty()) {
             StringBuilder ctx = new StringBuilder();
-            ctx.append("以下是之前的对话历史（共 ").append(history.size() / 2).append(" 轮），请记住上下文：\n\n");
+            ctx.append("以下是之前的对话历史，共 ").append(history.size() / 2).append(" 轮，请记住上下文：\n\n");
             for (ConversationEntity e : history) {
                 String label = "user".equals(e.getRole()) ? "用户" : "AI";
                 ctx.append("[").append(label).append("] ").append(e.getContent()).append("\n\n");
@@ -171,10 +153,22 @@ public class AgentController {
         return request;
     }
 
+    private void saveUserMessage(AgentRequest request, String sessionId) {
+        if (!hasText(request.getSessionId())) return;
+        int turn = conversationService.nextTurnIndex(request.getAgentTypeOrDefault(), sessionId);
+        conversationService.saveMessage(request.getAgentTypeOrDefault(), sessionId, turn, "user", request.getMessage());
+    }
+
+    private void saveAssistantMessage(AgentRequest request, String sessionId, String reply) {
+        if (!hasText(request.getSessionId())) return;
+        int turn = conversationService.nextTurnIndex(request.getAgentTypeOrDefault(), sessionId);
+        conversationService.saveMessage(request.getAgentTypeOrDefault(), sessionId, turn, "assistant", reply);
+    }
+
     private String getOrCreateSession(AgentRequest request) {
         if (hasText(request.getSessionId())) return request.getSessionId();
         String newId = conversationService.newSessionId();
-        request.setSessionId(newId);   // write back so saveMessage paths fire
+        request.setSessionId(newId);
         return newId;
     }
 
@@ -190,9 +184,11 @@ public class AgentController {
         List<Map<String, Object>> result = new java.util.ArrayList<>();
         if (cards != null) result.addAll(cards);
         result.add(Map.of("type", "trace", "title", "工具调用", "items", trace.items()));
-        result.add(Map.of("type", "reasoning", "title", "推理摘要", "content", trace.reasoning()));
+        result.add(Map.of("type", "thinking", "title", "处理状态", "content", trace.thinking()));
         return result;
     }
 
-    private boolean hasText(String s) { return s != null && !s.isBlank(); }
+    private boolean hasText(String s) {
+        return s != null && !s.isBlank();
+    }
 }
