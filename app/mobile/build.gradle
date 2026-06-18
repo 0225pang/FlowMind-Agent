@@ -1,0 +1,21 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "com.flowmind.mobile"
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.flowmind.mobile"
+        minSdk 23
+        targetSdk 34
+        versionCode 1
+        versionName "0.1.0"
+        buildConfigField "String", "DEFAULT_BASE_URL", "\"https://gracious-justifier-espresso.ngrok-free.dev\""
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+}

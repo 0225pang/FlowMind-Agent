@@ -8,11 +8,20 @@
           <span>Agent Platform</span>
         </div>
       </div>
-      <el-menu router :default-active="$route.path" class="menu">
-        <el-menu-item v-for="item in nav" :key="item.path" :index="item.path">
-          <el-icon><component :is="item.icon" /></el-icon>
-          <span>{{ item.label }}</span>
-        </el-menu-item>
+      <el-menu :default-active="$route.path" class="menu">
+        <el-tooltip
+          v-for="item in navWithAccess"
+          :key="item.path"
+          :content="item.reason || '可访问'"
+          placement="right"
+          :disabled="item.allowed"
+        >
+          <el-menu-item :index="item.path" :disabled="!item.allowed" @click="go(item)">
+            <el-icon><component :is="item.icon" /></el-icon>
+            <span>{{ item.label }}</span>
+            <el-icon v-if="!item.allowed" class="lock"><Lock /></el-icon>
+          </el-menu-item>
+        </el-tooltip>
       </el-menu>
     </aside>
 
@@ -20,12 +29,21 @@
       <header class="topbar">
         <div>
           <h1>{{ $route.meta.title }}</h1>
-          <span>保研内容运营工作空间</span>
+          <span>{{ auth.user.workspace || '保研内容运营工作空间' }}</span>
         </div>
         <div class="top-actions">
+          <el-tag effect="plain">{{ auth.roleText }}</el-tag>
           <el-tag effect="plain" type="success">API Ready</el-tag>
           <el-button circle aria-label="通知"><Bell /></el-button>
-          <el-avatar :size="36">FM</el-avatar>
+          <el-dropdown>
+            <el-avatar :size="36">{{ initials }}</el-avatar>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item disabled>{{ auth.user.nickname }}</el-dropdown-item>
+                <el-dropdown-item divided @click="logout">退出登录</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </header>
 
@@ -41,6 +59,13 @@
 </template>
 
 <script setup lang="ts">
+import { computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { useAuthStore } from '@/stores/auth'
+
+const router = useRouter()
+const auth = useAuthStore()
 const nav = [
   { path: '/dashboard', label: 'Dashboard', icon: 'DataBoard' },
   { path: '/agent', label: 'AI 工作台', icon: 'ChatLineRound' },
@@ -52,6 +77,29 @@ const nav = [
   { path: '/feishu', label: '飞书同步', icon: 'Connection' },
   { path: '/settings', label: '系统设置', icon: 'Setting' }
 ]
+
+const navWithAccess = computed(() => nav.map(item => ({
+  ...item,
+  allowed: auth.canVisit(item.path),
+  reason: auth.permissionReason(item.path)
+})))
+
+const initials = computed(() => (auth.user.nickname || auth.user.username || 'FM').slice(0, 2).toUpperCase())
+
+onMounted(() => auth.hydrate())
+
+function go(item: any) {
+  if (!item.allowed) {
+    ElMessage.warning(item.reason)
+    return
+  }
+  router.push(item.path)
+}
+
+function logout() {
+  auth.logout()
+  router.push('/login')
+}
 </script>
 
 <style scoped>
@@ -104,11 +152,25 @@ const nav = [
   border-radius: 8px;
   margin: 4px 0;
   height: 44px;
+  position: relative;
 }
 
 .menu :deep(.is-active) {
   background: linear-gradient(90deg, rgba(91,108,255,.14), rgba(25,179,123,.10));
   color: #4c5cff;
+}
+
+.menu :deep(.is-disabled) {
+  opacity: .44;
+  cursor: not-allowed;
+  filter: grayscale(.4);
+}
+
+.lock {
+  position: absolute;
+  right: 10px;
+  font-size: 14px;
+  color: #98a2b3;
 }
 
 .main {

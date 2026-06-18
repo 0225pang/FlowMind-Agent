@@ -1,6 +1,55 @@
-USE flowmind_agent;
-INSERT INTO sys_user(username,password,nickname) VALUES ('admin','123456','FlowMind 管理员'),('demo','123456','运营顾问 Demo');
-INSERT INTO sys_role(role_code,role_name) VALUES ('ADMIN','管理员'),('OPERATOR','运营顾问');
+USE FlowMind;
+INSERT INTO sys_user(username,password,nickname) VALUES
+('admin','123456','团队管理员 Admin'),
+('content','123456','内容运营人员'),
+('teacher','123456','教育咨询老师'),
+('ip','123456','个人IP运营者'),
+('student','123456','学员用户'),
+('demo','123456','兼容演示账号');
+INSERT INTO sys_role(role_code,role_name) VALUES
+('CONTENT_OPERATOR','内容运营人员'),
+('EDU_CONSULTANT','教育咨询老师'),
+('IP_OPERATOR','个人IP运营者'),
+('TEAM_ADMIN','团队管理员'),
+('STUDENT_USER','学员用户');
+INSERT INTO sys_permission(permission_code,permission_name,path_pattern,frontend_route,description) VALUES
+('PAGE_DASHBOARD','Dashboard','/api/analytics/**','/dashboard','查看工作台总览和统计数据'),
+('PAGE_AGENT','AI 工作台','/api/agents/**','/agent','访问总智能体、会话和流式对话'),
+('PAGE_PROMPT','Prompt 模板','/api/prompts/**','/agent','查看和维护 Prompt 模板'),
+('PAGE_KNOWLEDGE','知识库','/api/knowledge/**','/knowledge','查看知识库文档、标签和向量检索'),
+('PAGE_CONTENT','内容运营','/api/content/**','/content','查看和维护主题库、文案库和内容日历'),
+('PAGE_STUDENTS','学员管理','/api/students/**','/students','查看和维护学员画像、进度和风险等级'),
+('PAGE_SCHOOLS','院校情报','/api/schools/**','/schools','查看学校信息和执行院校推荐'),
+('PAGE_SCHOOL_PROJECTS','院校项目','/api/school-projects/**','/schools','查看和维护夏令营、预推免项目'),
+('PAGE_FEISHU','飞书同步','/api/feishu/**','/feishu','查看飞书同步状态、知识库文件和机器人日志'),
+('PAGE_SETTINGS','系统设置','/api/users/**','/settings','查看当前用户和基础配置'),
+('RBAC_ROLE_MANAGE','角色权限配置','/api/roles/**','/settings','团队管理员维护角色权限'),
+('RBAC_PERMISSION_VIEW','权限清单查看','/api/permissions/**','/settings','团队管理员查看权限点清单'),
+('GATEWAY_ROUTE_VIEW','网关路由','/api/gateway/**','/settings','查看服务路由与网关信息');
+INSERT INTO sys_user_role(user_id,role_id)
+SELECT u.id,r.id FROM sys_user u JOIN sys_role r ON r.role_code='TEAM_ADMIN' WHERE u.username='admin';
+INSERT INTO sys_user_role(user_id,role_id)
+SELECT u.id,r.id FROM sys_user u JOIN sys_role r ON r.role_code='CONTENT_OPERATOR' WHERE u.username='content';
+INSERT INTO sys_user_role(user_id,role_id)
+SELECT u.id,r.id FROM sys_user u JOIN sys_role r ON r.role_code='EDU_CONSULTANT' WHERE u.username='teacher';
+INSERT INTO sys_user_role(user_id,role_id)
+SELECT u.id,r.id FROM sys_user u JOIN sys_role r ON r.role_code='IP_OPERATOR' WHERE u.username='ip';
+INSERT INTO sys_user_role(user_id,role_id)
+SELECT u.id,r.id FROM sys_user u JOIN sys_role r ON r.role_code='STUDENT_USER' WHERE u.username='student';
+INSERT INTO sys_user_role(user_id,role_id)
+SELECT u.id,r.id FROM sys_user u JOIN sys_role r ON r.role_code='CONTENT_OPERATOR' WHERE u.username='demo';
+INSERT INTO sys_role_permission(role_id,permission_id)
+SELECT r.id,p.id FROM sys_role r JOIN sys_permission p
+WHERE r.role_code IN ('TEAM_ADMIN','CONTENT_OPERATOR','EDU_CONSULTANT','IP_OPERATOR')
+  AND p.permission_code IN ('PAGE_DASHBOARD','PAGE_AGENT','PAGE_PROMPT','PAGE_KNOWLEDGE','PAGE_CONTENT','PAGE_STUDENTS','PAGE_SCHOOLS','PAGE_SCHOOL_PROJECTS','PAGE_FEISHU','PAGE_SETTINGS','GATEWAY_ROUTE_VIEW');
+INSERT INTO sys_role_permission(role_id,permission_id)
+SELECT r.id,p.id FROM sys_role r JOIN sys_permission p
+WHERE r.role_code='TEAM_ADMIN'
+  AND p.permission_code IN ('RBAC_ROLE_MANAGE','RBAC_PERMISSION_VIEW');
+INSERT INTO sys_role_permission(role_id,permission_id)
+SELECT r.id,p.id FROM sys_role r JOIN sys_permission p
+WHERE r.role_code='STUDENT_USER'
+  AND p.permission_code IN ('PAGE_AGENT','PAGE_KNOWLEDGE','PAGE_SCHOOLS','PAGE_SCHOOL_PROJECTS','PAGE_SETTINGS');
 INSERT INTO prompt_template(agent_type,name,template) VALUES ('content','小红书选题','围绕{theme}生成10个适合教育服务的选题'),('student','学员画像','根据{profile}分析风险与建议'),('school','院校推荐','根据学生条件匹配院校项目');
 INSERT INTO knowledge_tag(name,color) VALUES ('夏令营','#5B6CFF'),('预推免','#19B37B'),('材料','#F59E0B'),('面试','#EF4444'),('内容运营','#8B5CF6');
 INSERT INTO knowledge_doc(title,category,summary,source) VALUES

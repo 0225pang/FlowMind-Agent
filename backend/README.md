@@ -211,16 +211,41 @@ API: http://localhost:18080
 Swagger: http://localhost:18080/swagger-ui.html
 ```
 
-Demo account:
+Demo accounts are stored in MySQL and are initialized automatically when the backend starts:
 
 ```text
-admin / 123456
+admin   / 123456  团队管理员
+content / 123456  内容运营人员
+teacher / 123456  教育咨询老师
+ip      / 123456  个人IP运营者
+student / 123456  学员用户
 ```
 
-Most APIs require:
+RBAC tables:
 
 ```text
-Authorization: Bearer mock-jwt.demo
+sys_user
+sys_role
+sys_user_role
+sys_permission
+sys_role_permission
+```
+
+Most APIs require a login token returned by `/api/auth/login`:
+
+```text
+Authorization: Bearer mock-jwt.xxxxxx
+```
+
+For backward-compatible demos, old tokens such as `Bearer mock-jwt.admin` or `Bearer mock-jwt.demo` are still accepted if the username exists.
+
+Permission management APIs:
+
+```http
+GET /api/roles
+GET /api/permissions
+GET /api/roles/{roleCode}/permissions
+PUT /api/roles/{roleCode}/permissions
 ```
 
 ## 6. Common Errors

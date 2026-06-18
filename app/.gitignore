@@ -1,0 +1,7 @@
+.gradle/
+build/
+*/build/
+
+# Keep generated debug APKs out of source control unless they are intentionally released.
+*.apk
+!FlowMindAgent-mobile-debug.apk

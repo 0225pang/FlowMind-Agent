@@ -1,5 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import MainLayout from '@/layouts/MainLayout.vue'
+import { useAuthStore } from '@/stores/auth'
 
 const routes = [
   { path: '/login', component: () => import('@/views/LoginView.vue') },
@@ -23,8 +25,16 @@ const routes = [
 
 const router = createRouter({ history: createWebHistory(), routes })
 
-router.beforeEach((to) => {
-  if (to.path !== '/login' && !localStorage.getItem('flowmind-token')) return '/login'
+router.beforeEach(async (to) => {
+  const auth = useAuthStore()
+  if (to.path === '/login') return true
+  if (!localStorage.getItem('flowmind-token')) return '/login'
+  await auth.hydrate()
+  if (!auth.canVisit(to.path)) {
+    ElMessage.warning(auth.permissionReason(to.path))
+    return auth.firstAllowedRoute()
+  }
+  return true
 })
 
 export default router
