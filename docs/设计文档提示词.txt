@@ -1,0 +1,945 @@
+你现在是一名资深软件架构师、全栈工程师和软件工程课程设计文档专家。请根据我提供的项目信息，帮我撰写一份完整、详细、结构清晰、适合课程结课设计提交的《系统设计文档》。
+
+文档主题为：
+
+《FlowMind Agent：基于飞书生态的 AI 内容运营与知识管理智能体平台》
+
+请注意：这是“系统设计文档”，不是需求文档。请重点说明系统架构、技术选型、模块边界、微服务划分、数据存储方案、认证鉴权、安全设计、部署方案、日志监控、扩展机制，以及若干技术关键点的解决方案。
+
+文档总字数建议约 9000-12000 字。语言正式、详实，适合直接放入 Word 文档。请用标题层级、表格、UML 图代码和说明文字组织内容。如果不能直接生成图片，请给出 Mermaid 或 PlantUML 图代码，并为每张图写图名、图注和解释，方便我后续转换成图片插入 Word。
+
+重要约束：
+1. 文档要结合实际开发方案，但不要暴露真实 API Key、真实 token、真实隐私数据。
+2. 可以写当前 Demo 采用“Spring Boot 多模块聚合启动，模拟微服务边界”，同时说明后续可以拆分为真实微服务。
+3. 不要写“我修复了某个 bug”“某次运行失败”等过程性内容。
+4. 可以写现有已设计或已实现的技术方案，例如 AI 工作台、Agent Router、LLMClient、工具扩展、飞书能力、向量检索、MySQL 持久化、内容运营数据表、SSE 流式输出、Thinking/Trace 落库等。
+5. 系统附加说明部分中，如果有我后续需要补充的内容，请明确标注“待补充”，不要瞎编。
+6. 系统规模中的代码量可以先写成“待统计/待补充”，也可以给出推荐统计方式，不要随便编数字。
+7. 这是课程设计 Demo 的设计文档，不要夸张写成已经上线的大型生产系统。
+8. 重点展示系统架构以及特定技术关键点的技术解决方案。
+
+一、项目基本信息
+
+项目名称：
+FlowMind Agent：基于飞书生态的 AI 内容运营与知识管理智能体平台
+
+项目定位：
+FlowMind Agent 是一个面向内容运营、教育服务、个人 IP 运营和小型团队协作场景的 AI 智能体平台。系统以网页端 AI 对话工作台作为统一入口，结合飞书生态中的文档、多维表格、任务协作和群机器人能力，并结合本地业务数据库、向量数据库和大模型 API，实现内容选题生成、资料库整理、知识问答、学员信息管理、院校项目情报管理、数据可视化和任务协同。
+
+系统产品形态：
+前端是 Vue3 + TypeScript + Vite + Element Plus 的网页端应用，页面形态为“后台管理系统 + AI 工作台”。后端是 Spring Boot 3.x 多模块 Maven 工程。Demo 阶段采用 app-service 聚合启动，其余模块体现微服务边界；后续可以拆分成真实微服务。
+
+系统核心能力：
+1. AI 工作台统一入口
+2. Agent Router 自动路由
+3. ContentAgent、KnowledgeAgent、StudentAgent、SchoolAgent、FeishuAgent
+4. 小红书内容 SOP、朋友圈内容 SOP、内容资产沉淀 SOP
+5. 内容主题库、文案库、内容日历
+6. 知识库文档同步与向量检索
+7. 飞书文档、飞书共享文件夹、飞书同步 Mock 与真实接口预留
+8. 学员管理、院校情报、数据分析
+9. SSE 流式输出
+10. 模型 Thinking / Reasoning 展示与落库
+11. 工具调用 Trace 展示与落库
+12. MySQL 本地业务数据库
+13. Weaviate 向量数据库
+14. Redis、MinIO 预留
+15. Swagger/OpenAPI 文档
+
+二、技术选型
+
+请详细撰写“技术选型”章节。需要说明：
+
+1. 前端技术选型
+   已选：
+   - Vue3
+   - TypeScript
+   - Vite
+   - Element Plus
+   - ECharts
+   - Vue Router
+   - Pinia 或轻量状态管理
+   - Fetch API / SSE
+
+   请分析为什么选择它们：
+   - Vue3 适合快速构建交互式后台管理系统和 AI 工作台。
+   - TypeScript 提高接口数据结构和组件状态的可靠性。
+   - Vite 启动快，适合课程设计快速迭代。
+   - Element Plus 组件丰富，适合表格、表单、弹窗、抽屉、标签、日历等后台管理交互。
+   - ECharts 适合数据分析页面。
+   - SSE 适合 AI 流式回复，比 WebSocket 更轻量，适合单向流式文本输出。
+
+   请比较可替代方案：
+   - React / Next.js
+   - Ant Design Vue
+   - WebSocket
+   - 原生 HTML/CSS
+   并说明为什么本项目选择 Vue3 + Element Plus + SSE。
+
+2. 后端技术选型
+   已选：
+   - Spring Boot 3.x
+   - Java 17 或以上
+   - Maven 多模块
+   - Spring MVC REST API
+   - Spring JDBC 或轻量数据访问
+   - Swagger / OpenAPI
+   - MySQL
+   - Redis 预留
+   - MinIO 预留
+   - Weaviate
+   - OpenAI-Compatible LLM Client
+   - lark-cli / 飞书开放平台 API 预留
+
+   请分析为什么选择它们：
+   - Spring Boot 适合构建标准化后端服务。
+   - Maven 多模块适合模拟微服务边界。
+   - MySQL 适合结构化业务数据。
+   - Redis 用于后续缓存、会话和限流。
+   - MinIO 用于后续图片和文件对象存储。
+   - Weaviate 用于知识库向量检索。
+   - OpenAI-Compatible Client 便于兼容 DeepSeek、OpenAI、豆包、通义千问或本地模型网关。
+   - lark-cli/飞书 API 用于快速接入飞书生态。
+
+   请比较可替代方案：
+   - Node.js / NestJS
+   - Python / FastAPI
+   - PostgreSQL
+   - MongoDB
+   - Elasticsearch
+   - Milvus
+   - WebSocket
+   并说明本项目为什么选择当前方案。
+
+3. 数据库技术选型
+   已选：
+   - MySQL：保存用户、角色、会话、内容、知识库、学员、院校、飞书同步、日志等结构化数据。
+   - Weaviate：保存知识库文档向量化分片，用于语义检索。
+   - Redis：预留缓存、限流、会话。
+   - MinIO：预留图片和文件存储。
+
+   请说明：
+   - MySQL 并不“过时”，它在结构化业务数据、事务、一致性、生态成熟度上仍然非常主流。
+   - 向量数据库不是替代 MySQL，而是补充语义检索能力。
+   - Redis 不是数据库主存储，而是缓存和高性能中间层。
+   - MinIO 不是关系数据库，而是对象存储。
+
+4. AI 与智能体技术选型
+   已选：
+   - Agent 抽象接口
+   - Agent Router
+   - LLMClient 抽象
+   - MockLLMClient
+   - OpenAiCompatibleLLMClient
+   - AgentExtension
+   - McpToolProvider
+   - SkillProvider
+   - 工具调用 Trace
+   - 模型 Reasoning / Thinking 流式展示
+
+   请说明为什么这样设计：
+   - 避免系统强绑定某个大模型厂商。
+   - 让工具能力和业务智能体解耦。
+   - 让新增 MCP 或 Skill 时尽量少改主流程。
+   - 让 AI 输出可追踪、可审计、可回放。
+   - 让用户知道系统到底调用了向量库、飞书能力还是普通模型知识。
+
+三、系统总体架构设计
+
+请撰写系统总体架构章节。
+
+当前设计：
+- 前端：Vue3 单页应用
+- 后端：Spring Boot 多模块 Maven 工程
+- Demo 启动方式：app-service 聚合启动
+- 逻辑服务模块：
+  1. gateway-service
+  2. user-service
+  3. ai-agent-service
+  4. knowledge-service
+  5. content-service
+  6. student-service
+  7. school-service
+  8. analytics-service
+  9. feishu-service
+  10. common-core
+  11. common-security
+  12. common-web
+- 外部系统：
+  1. MySQL
+  2. Weaviate
+  3. Redis（预留）
+  4. MinIO（预留）
+  5. LLM API
+  6. 飞书开放平台 / lark-cli
+  7. 浏览器客户端
+
+请用文字说明：
+- 为什么 Demo 阶段采用 app-service 聚合启动。
+- 为什么仍然保留微服务边界。
+- 后续如何拆分为真实微服务。
+- 每个服务的职责边界。
+- 服务之间交换哪些信息。
+- 业务数据如何存储。
+- 哪些数据存在 MySQL，哪些数据存在 Weaviate，哪些文件未来放 MinIO，哪些缓存未来放 Redis。
+
+请输出一个“系统总体架构图”的 Mermaid 或 PlantUML 代码。
+图中至少包含：
+- Browser / Client
+- Frontend SPA
+- Gateway
+- app-service
+- ai-agent-service
+- content-service
+- knowledge-service
+- user-service
+- feishu-service
+- student-service
+- school-service
+- analytics-service
+- MySQL
+- Weaviate
+- Redis
+- MinIO
+- LLM API
+- Feishu Open Platform
+
+请在图后写 800-1200 字架构说明。
+
+四、子系统与微服务边界
+
+请写一个表格，列出每个服务/模块的设计边界：
+
+1. gateway-service
+   职责：
+   - 统一路由
+   - CORS 配置
+   - 简单鉴权入口
+   - 后续真实微服务网关预留
+   不负责：
+   - 不处理具体业务逻辑
+   - 不直接访问业务表
+
+2. user-service
+   职责：
+   - 用户登录
+   - 用户注册
+   - 用户信息
+   - 角色权限
+   - Demo Token / 后续 JWT
+   不负责：
+   - 不处理内容生成
+   - 不处理飞书同步
+
+3. ai-agent-service
+   职责：
+   - AI 对话
+   - Agent Router
+   - Prompt 模板
+   - LLMClient 抽象
+   - MockLLMClient
+   - OpenAI-Compatible LLM Client
+   - AgentExtension
+   - MCP / Skill 扩展
+   - 会话历史
+   - Thinking 和 Trace 落库
+   不负责：
+   - 不直接承担所有业务数据管理
+   - 不直接绕过业务服务写业务表
+
+4. knowledge-service
+   职责：
+   - 知识文档管理
+   - 标签
+   - 飞书文档同步记录
+   - 文档摘要
+   - Embedding
+   - Weaviate 向量检索
+   - MySQL fallback
+   不负责：
+   - 不直接生成内容运营文案
+   - 不管理学生业务
+
+5. content-service
+   职责：
+   - 内容主题库
+   - 文案库
+   - 内容日历
+   - 内容 SOP
+   - 文案评分
+   - 图片/配图建议
+   - 内容生成流水
+   - 发布效果指标
+   不负责：
+   - 不直接管理学员画像
+   - 不直接决定飞书底层 API 细节
+
+6. student-service
+   职责：
+   - 学员信息
+   - 学员画像
+   - 申请进度
+   - 风险等级
+   - AI 分析接口
+   不负责：
+   - 不管理内容日历
+   - 不管理向量数据库
+
+7. school-service
+   职责：
+   - 院校信息
+   - 夏令营/预推免项目
+   - 报名条件
+   - 材料要求
+   - 截止日期
+   - 院校推荐
+   不负责：
+   - 不管理飞书文档同步
+   - 不管理内容文案库
+
+8. analytics-service
+   职责：
+   - 数据概览
+   - 学员分布
+   - GPA 分布
+   - 申请漏斗
+   - 内容统计
+   - 院校截止趋势
+   不负责：
+   - 不直接修改业务主数据
+
+9. feishu-service
+   职责：
+   - 飞书文档
+   - 飞书多维表格
+   - 飞书任务
+   - 飞书机器人
+   - 飞书同步日志
+   - lark-cli 桥接
+   不负责：
+   - 不决定业务 SOP
+   - 不直接替代知识库或内容服务
+
+10. common-core / common-security / common-web
+   职责：
+   - 统一响应
+   - ID 工具
+   - 安全基础
+   - Web 配置
+   - 拦截器
+   不负责：
+   - 不包含业务功能
+
+请说明：
+- Demo 阶段服务之间可以通过模块依赖和内部调用协作。
+- 真实微服务阶段可以通过 REST、消息队列或 RPC 协作。
+- 当前文档应设计出未来拆分的边界。
+
+五、组件图
+
+请绘制 UML 组件图。
+
+组件包括：
+- Vue Frontend
+- Router
+- API Client
+- Agent Workspace Components
+- Content Components
+- ECharts Dashboard
+- Spring Boot App
+- Controllers
+- Services
+- Mappers/Repositories
+- Agent Core
+- LLM Client
+- Agent Extensions
+- Feishu Tool Service
+- Vector Search Tool Service
+- MySQL
+- Weaviate
+- LLM API
+- Feishu API
+
+请输出 PlantUML 或 Mermaid 组件图代码。
+请说明组件之间的依赖关系：
+- 前端通过 API Client 访问后端 REST/SSE。
+- Controller 调用 Service。
+- Service 调用 Repository/Mapper 或外部 Adapter。
+- Agent Core 通过 LLMClient 调用模型，通过 AgentExtension 调用工具。
+- VectorSearchToolService 调用 EmbeddingService 和 Weaviate。
+- FeishuToolService 调用 lark-cli 或飞书 API。
+
+六、包图
+
+请绘制包图，展示后端包/模块结构和职责。
+
+包包括：
+- com.flowmind.app
+- com.flowmind.gateway
+- com.flowmind.user
+- com.flowmind.agent
+- com.flowmind.knowledge
+- com.flowmind.content
+- com.flowmind.student
+- com.flowmind.school
+- com.flowmind.analytics
+- com.flowmind.feishu
+- com.flowmind.common.core
+- com.flowmind.common.security
+- com.flowmind.common.web
+- com.flowmind.contrib.capability
+
+请说明：
+- contrib.capability 是小组成员扩展能力的缓冲区。
+- 稳定能力后再迁移到正式业务模块。
+- 包之间职责不能重叠。
+- Agent 模块负责任务编排，不负责所有业务存储。
+- Knowledge 模块负责知识检索，不负责内容生产。
+- Content 模块负责内容资产，不负责飞书底层实现。
+
+七、部署图
+
+请绘制部署图。
+
+当前 Demo 部署：
+- 开发者电脑 / 本地环境
+  - Browser
+  - Vite Dev Server
+  - Spring Boot app-service
+  - MySQL Docker 容器
+  - Weaviate Docker 容器
+  - lark-cli
+  - 本地配置文件 application-local.yml
+
+后续生产部署建议：
+- Nginx 或网关服务器
+  - 静态前端资源
+  - HTTPS 入口
+- 应用服务器
+  - gateway-service
+  - user-service
+  - ai-agent-service
+  - content-service
+  - knowledge-service
+  - student-service
+  - school-service
+  - analytics-service
+  - feishu-service
+- 数据服务器
+  - MySQL
+  - Redis
+  - Weaviate
+  - MinIO
+- 外部云服务
+  - LLM API
+  - Feishu Open Platform
+
+请说明：
+- Demo 使用人工启动。
+- 后续生产可使用 Docker Compose 或 CI/CD 自动部署。
+- 敏感配置通过环境变量或本地私有配置文件注入。
+- 版本升级时应先在测试环境验证，再更新生产环境。
+- 各组件演化时通过接口抽象降低影响。
+
+八、数据架构设计
+
+请撰写数据架构章节。
+
+数据库：
+- MySQL 保存结构化业务数据。
+- Weaviate 保存知识库文档向量分片。
+- Redis 预留缓存、会话、限流。
+- MinIO 预留图片和文件对象存储。
+
+请按数据域说明：
+
+1. 用户权限域
+   - sys_user
+   - sys_role
+   - sys_user_role
+
+2. AI 会话域
+   - agent_session
+   - agent_conversation 或 agent_message
+   - prompt_template
+   - agent_conversation.metadata 保存工具调用 Trace、模型 Thinking、处理状态等
+
+3. 内容运营域
+   - content_theme
+   - content_copy
+   - content_copy_image
+   - content_calendar
+   - content_tag
+   - content_theme_tag
+   - content_generation_record
+   - content_publish_metric
+
+4. 知识库域
+   - knowledge_doc
+   - knowledge_tag
+   - knowledge_doc_tag
+   - knowledge_sync_log
+
+5. 学员域
+   - student_profile
+   - student_application_progress
+
+6. 院校域
+   - school_info
+   - school_project
+
+7. 飞书与日志域
+   - feishu_sync_record
+   - system_log
+
+8. 向量检索域
+   - Weaviate class KnowledgeDoc
+   - 字段：title、chunkText、feishuToken、feishuUrl、feishuType、tags、mysqlId、chunkIndex、totalChunks
+
+请说明数据一致性：
+- MySQL 是业务事实源。
+- Weaviate 是检索索引，不替代 MySQL。
+- 飞书 token 和本地知识库文档要保留映射关系。
+- 内容主题、文案、日历需要外键或逻辑关联。
+- 会话消息必须兼容 metadata 为空的旧数据。
+- 向量库重建时应根据 MySQL 中没有进入向量库的数据进行补充同步。
+
+请输出一个 ER 图或数据关系图代码。
+
+九、服务协作与事务设计
+
+请详细说明不同服务之间如何协作。
+
+场景1：AI 工作台问答
+- 前端发送 SSE 请求。
+- ai-agent-service 保存用户消息。
+- AgentRouter 判断任务。
+- AgentTraceService 收集工具上下文。
+- AgentExtension 调用向量检索、飞书工具、时间工具、联网工具等。
+- LLMClient 调用大模型。
+- 后端流式返回 reasoning 和 answer。
+- 保存 assistant 消息、Trace、Thinking。
+
+请说明同步关系：
+- 用户问答是同步请求 + 流式响应。
+- 工具调用需要在模型生成前完成，作为上下文注入。
+- LLM 生成过程通过 SSE 返回。
+
+场景2：内容生成与入库
+- AI 工作台触发内容 SOP。
+- content-service 保存主题和文案。
+- content_calendar 记录发布日期。
+- 可选同步到飞书文档或多维表格。
+- 生成流水记录保存输入输出摘要。
+
+场景3：知识库同步与向量检索
+- feishu-service 或 knowledge-service 读取飞书文档。
+- knowledge-service 保存文档。
+- EmbeddingService 生成向量。
+- WeaviateClient 写入向量对象。
+- 查询时先向量检索，失败时 MySQL fallback。
+
+跨服务事务设计：
+- Demo 阶段以单体聚合方式运行，可依赖本地事务。
+- 未来真实微服务拆分后，跨服务不建议使用分布式强事务。
+- 可采用最终一致性：
+  - 本地事务先保存主业务数据。
+  - 生成同步任务或事件。
+  - 下游服务异步处理。
+  - 同步记录表保存状态。
+  - 失败可重试。
+- 对外部系统调用，如飞书写入，不应和本地数据库强绑定一个事务。
+- 应保存外部调用结果和失败原因，保证可追溯。
+
+请绘制服务协作顺序图。
+
+十、认证与鉴权设计
+
+请详细写认证鉴权方案。
+
+当前 Demo：
+- 登录成功后返回 Mock Token 或简单 Token。
+- 前端路由守卫检查 token。
+- 后端预留鉴权拦截器。
+- 大部分接口通过 Authorization Header 访问。
+
+后续设计：
+- JWT 登录认证。
+- 用户、角色、权限表。
+- RBAC 权限模型。
+- 接口路径和菜单权限绑定。
+- 管理员、运营人员、咨询老师等角色。
+- 敏感操作需要管理员权限。
+- 飞书、LLM、Embedding API Key 不暴露给前端。
+- 本地 application-local.yml 或环境变量保存敏感配置。
+- 工具调用白名单控制，禁止 LLM 任意执行 Shell 命令。
+- 会话、工具调用、飞书操作记录日志，便于审计。
+
+请绘制认证流程图或顺序图。
+
+十一、高并发与性能设计
+
+虽然系统不是电商秒杀系统，但请根据 AI 工作台和知识检索场景说明可能的并发压力：
+
+可能的压力点：
+- 多用户同时使用 AI 工作台。
+- LLM API 响应慢。
+- 向量检索耗时。
+- 飞书 API 限流。
+- 数据分析图表频繁刷新。
+- 内容列表分页查询。
+- SSE 长连接占用资源。
+
+应对方案：
+- 前端分页、懒加载和防抖。
+- 后端分页查询。
+- Redis 缓存热点配置、知识库统计和常用查询。
+- LLM 请求超时控制。
+- 工具调用超时和失败降级。
+- SSE 连接超时管理。
+- 飞书 API 调用限流和重试。
+- 向量检索 topK 限制。
+- MySQL 索引设计。
+- 异步任务处理长耗时同步。
+- 后续可水平扩展 ai-agent-service 和 knowledge-service。
+- 对外部 API 调用设置熔断和降级。
+
+请明确：
+- Demo 阶段主要保证课程演示稳定。
+- 生产阶段可引入 Redis、消息队列、限流网关、服务监控。
+
+十二、日志、监控与故障定位
+
+请写监控设计。
+
+日志类型：
+- 系统运行日志
+- 用户登录日志
+- AI 会话日志
+- 工具调用 Trace
+- 模型 Thinking / Reasoning 记录
+- 飞书同步日志
+- 知识库同步日志
+- 向量检索日志
+- 异常日志
+- 系统操作日志
+
+故障定位流程：
+- 用户反馈某次回答不准确。
+- 根据会话 ID 查 agent_conversation。
+- 查看 metadata 中的工具 Trace 和模型 Thinking。
+- 判断是否向量检索未命中、飞书工具失败、LLM 生成偏差或 Prompt 不完整。
+- 根据日志定位外部 API 状态。
+- 修复方式可能包括补充知识库、重建向量索引、调整 Prompt、修复飞书权限、增加降级提示。
+
+后续监控方案：
+- Spring Boot Actuator
+- Prometheus
+- Grafana
+- ELK / Loki 日志系统
+- 告警规则
+- 外部 API 调用耗时统计
+- SSE 连接数统计
+- LLM 调用成功率统计
+- Weaviate 查询耗时统计
+
+十三、部署与运维设计
+
+请写部署方案。
+
+当前 Demo 本地部署：
+- Windows 本地开发环境
+- 前端 Vite Dev Server
+- 后端 Spring Boot app-service
+- MySQL Docker 容器
+- Weaviate Docker 容器
+- lark-cli 本地授权
+- application-local.yml 保存本地私有配置
+
+当前启动方式：
+- 前端：npm install；npm run dev
+- 后端：mvnw spring-boot:run
+- MySQL：docker run 或 docker start
+- Weaviate：Docker 启动
+- 飞书：lark-cli auth login
+
+请不要写具体真实 Key。
+
+后续生产部署：
+- 前端构建为静态资源，部署到 Nginx。
+- 后端服务用 Docker 镜像部署。
+- MySQL、Redis、Weaviate、MinIO 独立部署。
+- 通过 Nginx 或 API Gateway 暴露 HTTPS。
+- 使用环境变量注入配置。
+- 使用 Docker Compose 或 CI/CD。
+- 版本升级先灰度或测试环境验证。
+- 数据库升级使用迁移脚本。
+- 向量库 schema 变更需要兼容旧字段或重建索引。
+
+请绘制部署图。
+
+十四、技术关键点解决方案
+
+请选取至少 6 个技术关键点详细展开。每个技术关键点请按：
+- 背景问题
+- 设计目标
+- 方案设计
+- 关键流程
+- 优点
+- 局限与后续优化
+来写。
+
+关键点1：统一 AI 工作台与 Agent 自动路由
+内容：
+- 用户不再手动选择智能体。
+- 统一总智能体入口。
+- AgentRouter 根据用户输入判断任务类型。
+- 路由到 ContentAgent、KnowledgeAgent、StudentAgent、SchoolAgent、FeishuAgent。
+- 工具能力通过 AgentExtension 注入上下文。
+- 好处是降低用户操作成本，也便于后续扩展。
+
+关键点2：LLM API 可替换封装
+内容：
+- 使用 LLMClient 抽象。
+- MockLLMClient 用于无 Key 或离线 Demo。
+- OpenAiCompatibleLLMClient 用于 DeepSeek 或兼容 OpenAI 协议的模型。
+- 后续可接豆包、通义千问、OpenAI、本地模型网关。
+- 支持流式输出。
+- 支持解析 reasoning_content / reasoning / thinking 字段。
+- 不把业务逻辑写死在模型客户端中。
+
+关键点3：SSE 流式回答、模型 Thinking 与工具 Trace 展示
+内容：
+- SSE 适合单向流式文本输出。
+- 后端返回 session、thinking、trace、reasoning、delta、done 等事件。
+- delta 是最终回答。
+- reasoning 是模型返回的 Thinking。
+- trace 是工具调用结果。
+- 前端实时展示，完成后可折叠查看。
+- 后端保存到会话 metadata。
+- 兼容旧会话 metadata 为空。
+
+关键点4：工具扩展/MCP/Skill 解耦设计
+内容：
+- AgentExtension 统一描述扩展能力。
+- McpToolProvider 表示外部工具能力。
+- SkillProvider 表示固定工作流或 SOP 能力。
+- RuntimeToolExtensions 支持时间、联网等能力。
+- LarkCliMcpExtension 支持飞书工具。
+- SemanticVectorSearchExtension 支持向量检索。
+- 小组成员可在 contrib/capability 中新增 ToolService、Controller、Extension。
+- 主流程稳定，降低多人协作冲突。
+
+关键点5：知识库向量检索方案
+内容：
+- MySQL 保存原始知识文档。
+- 文档切分为 Chunk。
+- EmbeddingService 生成向量。
+- Weaviate 保存向量分片。
+- 查询时先向量检索。
+- 若 Weaviate 不可用或无结果，fallback 到 MySQL 搜索。
+- 检索结果带 source、title、chunkText、feishuToken、feishuUrl、tags、distance。
+- Agent 调用向量检索后把结果注入 Prompt。
+- 避免知识库无依据时胡编乱造。
+
+关键点6：飞书生态接入方案
+内容：
+- 飞书文档、飞书多维表格、飞书任务、飞书机器人能力统一封装。
+- Demo 阶段部分使用 Mock，部分通过 lark-cli 调用真实飞书。
+- FeishuAgent 负责飞书相关任务。
+- 飞书共享文件夹通过 folderToken 访问。
+- 创建文档时需要 parentToken 或目标文件夹 token。
+- 飞书能力调用结果进入工具 Trace。
+- 后续可替换为正式飞书 OpenAPI Client。
+- 权限不足时要明确提示用户授权范围。
+
+关键点7：内容运营数据沉淀设计
+内容：
+- 内容生成不只是一次性输出。
+- 主题库保存选题。
+- 文案库保存多个版本文案。
+- 内容日历保存计划和发布状态。
+- 文案图片或配图建议单独管理。
+- 支持 5 星评分。
+- 支持使用状态和使用日期。
+- 支持内容生成流水，保存输入输出摘要。
+- 后续可同步飞书多维表格和文档。
+
+关键点8：安全配置与敏感信息管理
+内容：
+- API Key 不放公共配置。
+- 使用 application-local.yml 或环境变量。
+- application-local.yml 不进入 Git。
+- 前端不持有 LLM Key 或飞书 Key。
+- 后端统一代理外部 API。
+- 飞书和 Shell 工具使用白名单。
+- 后续使用 JWT、RBAC、审计日志。
+
+十五、系统附加说明
+
+这一部分可以允许标注待补充。
+
+请写以下内容：
+
+1. 软件运行环境
+   当前建议：
+   - Windows 11
+   - JDK 17+
+   - Node.js 18+
+   - Maven Wrapper
+   - Docker Desktop
+   - MySQL 9.x
+   - Weaviate
+   - lark-cli
+   - 浏览器 Chrome / Edge
+
+2. 软件开发环境
+   - IntelliJ IDEA / VS Code
+   - Git
+   - PowerShell
+   - npm
+   - Maven
+   - Docker
+
+3. 安装方法
+   - 拉取 Git 仓库
+   - 启动 MySQL
+   - 启动 Weaviate
+   - 配置 application-local.yml
+   - 启动后端
+   - 启动前端
+   - 登录 Demo 账号
+
+4. 卸载方法
+   - 停止前端服务
+   - 停止后端服务
+   - 停止 Docker 容器
+   - 删除本地配置文件
+   - 可选删除数据库数据卷
+   注意：卸载前应备份 MySQL 和飞书资料。
+
+5. 系统规模
+   请先写成：
+   - 客户端代码量：待统计
+   - 服务端代码量：待统计
+   - 文档与配置代码量：待统计
+   - 整个系统总代码量：待统计
+   并补充推荐统计方式：
+   - 使用 cloc
+   - 或使用 PowerShell / git ls-files 统计
+   - 排除 node_modules、target、dist、.m2repo 等目录
+
+6. 系统附加说明待补充项
+   - 最终运行截图
+   - 最终代码量统计
+   - 最终成员分工
+   - 最终部署截图
+   - 最终测试结果
+   - 最终飞书授权截图
+   - 最终数据库表结构截图
+
+十六、文档输出结构
+
+请按以下结构输出完整《系统设计文档》：
+
+封面
+摘要
+目录
+
+1 技术选型
+  1.1 前端技术选型
+  1.2 后端技术选型
+  1.3 数据库与存储技术选型
+  1.4 AI 与智能体技术选型
+  1.5 技术选型对比与结论
+
+2 系统总体架构设计
+  2.1 总体架构概述
+  2.2 系统总体架构图
+  2.3 子系统与微服务划分
+  2.4 服务边界与数据交换
+  2.5 Demo 聚合启动与后续微服务拆分方案
+
+3 组件设计与模块结构
+  3.1 组件图
+  3.2 包图
+  3.3 前端模块结构
+  3.4 后端模块结构
+  3.5 外部系统适配层设计
+
+4 数据架构设计
+  4.1 数据存储总体方案
+  4.2 MySQL 业务数据设计
+  4.3 Weaviate 向量数据设计
+  4.4 Redis 与 MinIO 预留设计
+  4.5 数据一致性与索引重建策略
+  4.6 ER 图或数据关系图
+
+5 服务协作与事务设计
+  5.1 AI 工作台问答协作流程
+  5.2 内容生成与入库协作流程
+  5.3 知识库同步与向量检索协作流程
+  5.4 跨服务事务与最终一致性设计
+
+6 认证、鉴权与安全设计
+  6.1 当前 Demo 鉴权方案
+  6.2 后续 JWT 与 RBAC 方案
+  6.3 敏感配置管理
+  6.4 工具调用安全边界
+  6.5 审计与日志安全
+
+7 高并发与性能设计
+  7.1 潜在性能瓶颈
+  7.2 前端优化
+  7.3 后端优化
+  7.4 数据库与缓存优化
+  7.5 外部 API 限流与降级
+  7.6 后续扩展方案
+
+8 日志、监控与故障定位
+  8.1 日志类型
+  8.2 Trace 与 Thinking 的可追溯设计
+  8.3 故障定位流程
+  8.4 后续监控平台方案
+
+9 部署与运维设计
+  9.1 当前 Demo 部署图
+  9.2 本地部署流程
+  9.3 生产部署建议
+  9.4 配置管理
+  9.5 版本升级与演化
+
+10 技术关键点解决方案
+  10.1 统一 AI 工作台与 Agent 自动路由
+  10.2 LLM API 可替换封装
+  10.3 SSE 流式回答、Thinking 与 Trace 展示
+  10.4 工具扩展/MCP/Skill 解耦设计
+  10.5 知识库向量检索方案
+  10.6 飞书生态接入方案
+  10.7 内容运营数据沉淀设计
+  10.8 安全配置与敏感信息管理
+
+11 系统附加说明
+  11.1 运行环境
+  11.2 开发环境
+  11.3 安装方法
+  11.4 卸载方法
+  11.5 系统规模
+  11.6 待补充项
+
+12 总结
+
+十七、输出要求
+
+1. 文档正文要完整，不要只给大纲。
+2. 每张图都要给 Mermaid 或 PlantUML 代码。
+3. 每张图都要有图名、图注和解释。
+4. 表格要清晰。
+5. 不要出现真实 API Key。
+6. 不要编造最终代码量，代码量写待统计。
+7. 不要把课程 Demo 写成已上线生产系统。
+8. 语言正式，适合 Word 文档。
+9. 技术关键点要写得细，不能泛泛而谈。
+10. 如果某部分现在不好确定，请写“待补充”并说明应补充什么。
+
+请现在开始生成完整《系统设计文档》正文。
