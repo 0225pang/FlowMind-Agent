@@ -1,0 +1,29 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;MODE=MySQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  sql:
+    init:
+      mode: always
+flowmind:
+  llm:
+    provider: mock
+    model: mock
+    api-key: test-key
+  tools:
+    lark-cli:
+      enabled: false
+  weaviate:
+    enabled: false
+  feishu:
+    mode: mock
+    knowledge-base:
+      name: test-kb
+      folder-token: test-token
+      url: https://test.feishu.cn/folder/test
+  embedding:
+    provider: mock
+    api-key: test-key
+    model: text-embedding-v4

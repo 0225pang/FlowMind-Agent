@@ -138,63 +138,151 @@ export async function streamAgentChat(
   onThinking?: (text: string) => void,
   onReasoning?: (text: string) => void
 ) {
-  const response = await fetch(`${API_BASE}/chat/stream`, {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify(payload)
-  })
-  if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`)
+  await streamAgentChatWithXhr(payload, onDelta, onSession, onTrace, onThinking, onReasoning)
+}
 
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder('utf-8')
-  let buffer = ''
+function streamAgentChatWithXhr(
+  payload: AgentChatRequest,
+  onDelta: (text: string) => void,
+  onSession?: (sessionId: string) => void,
+  onTrace?: (items: AgentTraceItem[]) => void,
+  onThinking?: (text: string) => void,
+  onReasoning?: (text: string) => void
+) {
+  return new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    let cursor = 0
+    let buffer = ''
+    let settled = false
 
-  while (true) {
-    const { value, done } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const frames = buffer.split('\n\n')
-    buffer = frames.pop() || ''
-    for (const frame of frames) {
-      const event = parseSseFrame(frame)
-      if (!event) continue
-      if (event.event === 'session' && onSession && event.data?.sessionId) {
-        onSession(event.data.sessionId)
+    const consume = (flush = false) => {
+      const chunk = xhr.responseText.slice(cursor)
+      cursor = xhr.responseText.length
+      if (chunk) buffer += chunk
+      const extracted = extractSseFrames(buffer, flush)
+      buffer = extracted.rest
+      for (const frame of extracted.frames) {
+        handleSseEvent(frame, onDelta, onSession, onTrace, onThinking, onReasoning)
       }
-      if (event.event === 'delta') {
-        const content = event.data.content
-        if (typeof content === 'string' && content.length > 0 && content !== 'null') {
-          onDelta(content)
+    }
+
+    xhr.open('POST', `${API_BASE}/chat/stream`, true)
+    xhr.setRequestHeader('Authorization', authHeaders().Authorization)
+    xhr.setRequestHeader('Content-Type', 'application/json')
+    xhr.setRequestHeader('Accept', 'text/event-stream')
+    xhr.setRequestHeader('Cache-Control', 'no-cache')
+    xhr.overrideMimeType('text/event-stream; charset=utf-8')
+
+    xhr.onprogress = () => {
+      try {
+        consume(false)
+      } catch (err) {
+        if (!settled) {
+          settled = true
+          xhr.abort()
+          reject(err)
         }
       }
-      if (event.event === 'trace' && onTrace) {
-        const items = Array.isArray(event.data?.items) ? event.data.items : []
-        onTrace(items)
+    }
+
+    xhr.onload = () => {
+      if (settled) return
+      try {
+        consume(true)
+        settled = true
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve()
+        } else {
+          reject(new Error(`HTTP ${xhr.status}: ${xhr.responseText || xhr.statusText}`))
+        }
+      } catch (err) {
+        reject(err)
       }
-      if (event.event === 'thinking' && onThinking) {
-        const content = event.data?.content
-        if (typeof content === 'string') onThinking(content)
-      }
-      if (event.event === 'reasoning' && onReasoning) {
-        const content = event.data?.content
-        if (typeof content === 'string') onReasoning(content)
-      }
-      if (event.event === 'done' && event.data?.sessionId && onSession) {
-        onSession(event.data.sessionId)
-      }
-      if (event.event === 'error') throw new Error(String(event.data.message || 'LLM stream failed'))
+    }
+
+    xhr.onerror = () => {
+      if (settled) return
+      settled = true
+      reject(new Error('SSE network error'))
+    }
+
+    xhr.ontimeout = () => {
+      if (settled) return
+      settled = true
+      reject(new Error('SSE request timeout'))
+    }
+
+    xhr.timeout = 300_000
+    xhr.send(JSON.stringify(payload))
+  })
+}
+
+function handleSseEvent(
+  frame: string,
+  onDelta: (text: string) => void,
+  onSession?: (sessionId: string) => void,
+  onTrace?: (items: AgentTraceItem[]) => void,
+  onThinking?: (text: string) => void,
+  onReasoning?: (text: string) => void
+) {
+  const event = parseSseFrame(frame)
+  if (!event) return
+  if (event.event === 'session' && onSession && event.data?.sessionId) {
+    onSession(event.data.sessionId)
+  }
+  if (event.event === 'delta') {
+    const content = event.data.content
+    if (typeof content === 'string' && content.length > 0 && content !== 'null') {
+      onDelta(content)
     }
   }
+  if (event.event === 'trace' && onTrace) {
+    const items = Array.isArray(event.data?.items) ? event.data.items : []
+    onTrace(items)
+  }
+  if (event.event === 'thinking' && onThinking) {
+    const content = event.data?.content
+    if (typeof content === 'string') onThinking(content)
+  }
+  if (event.event === 'reasoning' && onReasoning) {
+    const content = event.data?.content
+    if (typeof content === 'string') onReasoning(content)
+  }
+  if (event.event === 'done' && event.data?.sessionId && onSession) {
+    onSession(event.data.sessionId)
+  }
+  if (event.event === 'error') throw new Error(String(event.data.message || 'LLM stream failed'))
+}
+
+function extractSseFrames(buffer: string, flush = false) {
+  const normalized = buffer.replace(/\r\n/g, '\n')
+  const frames: string[] = []
+  let rest = normalized
+  let index = rest.indexOf('\n\n')
+  while (index >= 0) {
+    const frame = rest.slice(0, index).trim()
+    if (frame) frames.push(frame)
+    rest = rest.slice(index + 2)
+    index = rest.indexOf('\n\n')
+  }
+  if (flush && rest.trim()) {
+    frames.push(rest.trim())
+    rest = ''
+  }
+  return { frames, rest }
 }
 
 function parseSseFrame(frame: string) {
   const lines = frame.split(/\r?\n/)
   const event = lines.find(line => line.startsWith('event:'))?.slice(6).trim() || 'message'
-  const dataLine = lines.find(line => line.startsWith('data:'))
-  if (!dataLine) return undefined
+  const dataLines = lines
+    .filter(line => line.startsWith('data:'))
+    .map(line => line.slice(5).trimStart())
+  if (!dataLines.length) return undefined
+  const dataText = dataLines.join('\n').trim()
   try {
-    return { event, data: JSON.parse(dataLine.slice(5).trim()) }
+    return { event, data: JSON.parse(dataText) }
   } catch {
-    return { event, data: { content: dataLine.slice(5).trim() } }
+    return { event, data: { content: dataText } }
   }
 }

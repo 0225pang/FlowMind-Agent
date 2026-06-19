@@ -39,6 +39,18 @@ flowmind:
       enabled: true
       command: lark-cli
       timeout-seconds: 30
+    xiaohongshu-mcp:
+      # Adapter for https://github.com/xpzouying/xiaohongshu-mcp.
+      # Keep the real MCP disabled by default. The agent can still use mock
+      # hot-note structures for the Xiaohongshu SOP demo.
+      enabled: false
+      agent-enabled: true
+      base-url: ${FLOWMIND_XHS_MCP_BASE_URL:}
+      search-path: /api/xiaohongshu/search
+      detail-path: /api/xiaohongshu/detail
+      timeout-seconds: 20
+      default-limit: 8
+      mock-fallback: true
   feishu:
     mode: mock
     knowledge-base:
