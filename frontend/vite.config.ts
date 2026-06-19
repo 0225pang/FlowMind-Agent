@@ -11,7 +11,7 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    allowedHosts: ['345cca50.r28.cpolar.top'],
+    allowedHosts: ['345cca50.r28.cpolar.top', '1ba8ba83.r28.cpolar.top'],
     proxy: {
       '/api': 'http://localhost:8080'
     }

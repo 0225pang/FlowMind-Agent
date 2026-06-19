@@ -62,6 +62,7 @@ public class MainActivity extends Activity {
     private final List<LinearLayout> navItems = new ArrayList<>();
     private int currentTab = 0;
     private String currentSessionId = "";
+    private MobileConversationStore conversationStore;
     private LinearLayout chatMessages;
     private ScrollView chatScroll;
 
@@ -73,6 +74,7 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences(PREF, MODE_PRIVATE);
         api = new ApiClient(prefs.getString("baseUrl", BuildConfig.DEFAULT_BASE_URL));
         api.setToken(prefs.getString("token", "mock-jwt.demo"));
+        conversationStore = new MobileConversationStore(prefs);
 
         if (prefs.getBoolean("loggedIn", false)) {
             showShell();
@@ -260,6 +262,12 @@ public class MainActivity extends Activity {
         titleBox.addView(text("AI 工作台", 24, INK, true));
         titleBox.addView(text("总智能体会自动选择知识库、飞书、内容或院校能力。", 12, MUTED, false));
         top.addView(titleBox, lp(0, -2, 1));
+        Button history = ghostButton("历史");
+        Button fresh = ghostButton("新建");
+        top.addView(history, lp(dp(68), dp(40)));
+        top.addView(gapW(6));
+        top.addView(fresh, lp(dp(68), dp(40)));
+        top.addView(gapW(6));
         top.addView(pill("Auto Agent", BRAND, Color.WHITE));
         root.addView(top);
         root.addView(gap(10));
@@ -281,7 +289,7 @@ public class MainActivity extends Activity {
         chatMessages.setPadding(0, 0, 0, dp(10));
         chatScroll.addView(chatMessages);
         root.addView(chatScroll, lp(-1, 0, 1));
-        addChatMessage("FlowMind", "你好，我会优先检索向量知识库，再根据任务调用飞书、内容、院校等能力。", false);
+        restoreLatestConversation();
 
         LinearLayout composer = horizontal();
         composer.setGravity(Gravity.BOTTOM);
@@ -303,10 +311,123 @@ public class MainActivity extends Activity {
             input.setText("");
             sendAgent(msg);
         });
+        history.setOnClickListener(v -> showConversationHistory());
+        fresh.setOnClickListener(v -> {
+            MobileConversationStore.ConversationSnapshot snapshot = conversationStore.startNew("FlowMind conversation");
+            currentSessionId = snapshot.sessionId;
+            chatMessages.removeAllViews();
+            addChatMessage("FlowMind", "已新建对话。你可以直接输入任务，我会优先检索向量知识库，再决定是否调用飞书、内容、院校等能力。", false);
+        });
         replace(root);
     }
 
+    private void restoreLatestConversation() {
+        if (conversationStore == null || chatMessages == null) {
+            return;
+        }
+        MobileConversationStore.ConversationSnapshot snapshot = conversationStore.loadActiveOrLatest();
+        chatMessages.removeAllViews();
+        if (snapshot == null || snapshot.messages.length() == 0) {
+            MobileConversationStore.ConversationSnapshot created = conversationStore.startNew("FlowMind conversation");
+            currentSessionId = created.sessionId;
+            addChatMessage("FlowMind", "你好，我会优先检索向量知识库，再根据任务调用飞书、内容、院校等能力。", false);
+            return;
+        }
+        currentSessionId = snapshot.sessionId;
+        renderConversation(snapshot);
+    }
+
+    private void renderConversation(MobileConversationStore.ConversationSnapshot snapshot) {
+        chatMessages.removeAllViews();
+        if (snapshot == null || snapshot.messages.length() == 0) {
+            addChatMessage("FlowMind", "这个会话还没有消息。你可以直接输入任务开始。", false);
+            return;
+        }
+        for (int i = 0; i < snapshot.messages.length(); i++) {
+            JSONObject item = snapshot.messages.optJSONObject(i);
+            if (item == null) continue;
+            String role = item.optString("role", "assistant");
+            String content = item.optString("content", "");
+            if ("user".equals(role)) {
+                addChatMessage("我", content, true);
+            } else if ("system".equals(role)) {
+                addChatMessage("FlowMind", content, false);
+            } else {
+                addStoredAssistantMessage(item);
+            }
+        }
+        scrollChatToEnd();
+    }
+
+    private void addStoredAssistantMessage(JSONObject item) {
+        LinearLayout bubble = chatBubble(false);
+        bubble.addView(text("FlowMind", 12, BRAND, true));
+        String status = item.optString("status", "done");
+        if (!status.isEmpty()) {
+            bubble.addView(text("历史记录 / " + status, 12, MUTED, false));
+        }
+        JSONArray tools = item.optJSONArray("tools");
+        String reasoning = item.optString("reasoning", "");
+        if (tools != null && tools.length() > 0) {
+            TextView toolView = text(traceText(tools), 12, Color.rgb(71, 84, 103), false);
+            toolView.setOnClickListener(v -> showJsonDialog("工具调用详情", tools));
+            bubble.addView(toolView);
+        }
+        if (!reasoning.isEmpty()) {
+            TextView thinking = text("Thinking 已保存，点击展开", 12, Color.rgb(139, 146, 160), false);
+            thinking.setOnClickListener(v -> showTextDialog("模型 Thinking", reasoning));
+            bubble.addView(thinking);
+        }
+        bubble.addView(gap(6));
+        bubble.addView(markdown(item.optString("content", "")));
+        chatMessages.addView(bubble);
+        animateIn(bubble, 0);
+    }
+
+    private void showConversationHistory() {
+        List<MobileConversationStore.ConversationSummary> summaries = conversationStore.listSummaries();
+        LinearLayout box = dialogBody();
+        if (summaries.isEmpty()) {
+            box.addView(emptyView("暂无历史对话。发送一条消息后，App 会自动保存最近会话。"));
+            dialog("历史对话", box).show();
+            return;
+        }
+        for (MobileConversationStore.ConversationSummary summary : summaries) {
+            LinearLayout card = glassCard();
+            card.addView(text(summary.title, 16, INK, true));
+            card.addView(text(summary.displayTime() + " · " + summary.messageCount + " 条消息", 12, MUTED, false));
+            if (!summary.compactPreview().isEmpty()) {
+                card.addView(markdown(limit(summary.compactPreview(), 130)));
+            }
+            LinearLayout actions = horizontal();
+            Button open = primaryButton("打开");
+            Button delete = ghostButton("删除");
+            actions.addView(open, lp(0, dp(42), 1));
+            actions.addView(gapW(8));
+            actions.addView(delete, lp(0, dp(42), 1));
+            card.addView(actions);
+            open.setOnClickListener(v -> {
+                MobileConversationStore.ConversationSnapshot snapshot = conversationStore.load(summary.sessionId);
+                if (snapshot != null) {
+                    currentSessionId = snapshot.sessionId;
+                    conversationStore.setActive(snapshot.sessionId);
+                    renderConversation(snapshot);
+                    toast("已打开历史对话");
+                }
+            });
+            delete.setOnClickListener(v -> {
+                conversationStore.remove(summary.sessionId);
+                toast("已删除本地历史");
+            });
+            box.addView(card);
+        }
+        dialog("历史对话", box).show();
+    }
+
     private void sendAgent(String message) {
+        MobileConversationStore.ConversationSnapshot localSnapshot = conversationStore.ensureActive();
+        currentSessionId = currentSessionId == null || currentSessionId.isEmpty() ? localSnapshot.sessionId : currentSessionId;
+        conversationStore.appendUserMessage(currentSessionId, message);
         addChatMessage("我", message, true);
 
         LinearLayout bubble = chatBubble(false);
@@ -332,6 +453,7 @@ public class MainActivity extends Activity {
             body.put("context", new JSONObject());
         } catch (Exception ignored) {}
 
+        final String localSessionForRequest = currentSessionId;
         api.postSse("/api/agents/chat/stream", body, new ApiClient.SseCallback() {
             final StringBuilder fullAnswer = new StringBuilder();
             final StringBuilder fullReasoning = new StringBuilder();
@@ -339,7 +461,11 @@ public class MainActivity extends Activity {
 
             @Override public void onEvent(String event, JSONObject data) {
                 if ("session".equals(event)) {
-                    currentSessionId = data.optString("sessionId", currentSessionId);
+                    String backendSessionId = data.optString("sessionId", currentSessionId);
+                    if (!backendSessionId.isEmpty() && !backendSessionId.equals(localSessionForRequest)) {
+                        conversationStore.mapBackendSession(localSessionForRequest, backendSessionId);
+                    }
+                    currentSessionId = backendSessionId;
                 } else if ("thinking".equals(event)) {
                     status.setText(data.optString("content", "正在思考..."));
                 } else if ("reasoning".equals(event)) {
@@ -357,6 +483,7 @@ public class MainActivity extends Activity {
                 } else if ("error".equals(event)) {
                     status.setTextColor(RED);
                     status.setText("错误：" + data.optString("message"));
+                    conversationStore.appendAssistantMessage(currentSessionId, data.optString("message"), traceItems, fullReasoning.toString(), "error");
                 } else if ("done".equals(event)) {
                     status.setTextColor(GREEN);
                     status.setText("回答完成");
@@ -367,6 +494,7 @@ public class MainActivity extends Activity {
                     if (traceItems.length() > 0) {
                         tools.setOnClickListener(v -> showJsonDialog("工具调用详情", traceItems));
                     }
+                    conversationStore.appendAssistantMessage(currentSessionId, fullAnswer.toString(), traceItems, fullReasoning.toString(), "done");
                 }
                 scrollChatToEnd();
             }
@@ -374,6 +502,7 @@ public class MainActivity extends Activity {
             @Override public void onError(String message) {
                 status.setTextColor(RED);
                 status.setText("请求失败：" + message);
+                conversationStore.appendAssistantMessage(currentSessionId, "请求失败：" + message, traceItems, fullReasoning.toString(), "failed");
                 scrollChatToEnd();
             }
 
@@ -473,12 +602,17 @@ public class MainActivity extends Activity {
                 results.removeAllViews();
                 JSONArray arr = asArray(body.opt("data"));
                 results.addView(sectionTitle("语义检索结果"));
-                if (empty(arr)) results.addView(emptyView("没有检索到相关知识片段。"));
+                if (empty(arr)) {
+                    arr = MobileOfflineFallbacks.vectorHits();
+                    results.addView(infoCard("本地兜底", "接口没有返回向量结果，已展示移动端内置知识片段，便于课堂演示。"));
+                }
                 renderCards(results, arr, "title", "chunkText", item -> showJsonDialog("知识片段详情", item));
             }
             @Override public void onError(String message) {
                 results.removeAllViews();
                 results.addView(errorView(message));
+                results.addView(infoCard("本地兜底", "向量检索接口暂时不可用，先展示内置知识片段。"));
+                renderCards(results, MobileOfflineFallbacks.vectorHits(), "title", "chunkText", item -> showJsonDialog("知识片段详情", item));
             }
         });
     }
@@ -491,11 +625,17 @@ public class MainActivity extends Activity {
                 results.removeAllViews();
                 JSONArray arr = asArray(body.opt("data"));
                 results.addView(sectionTitle("知识库文档"));
+                if (empty(arr)) {
+                    arr = MobileOfflineFallbacks.knowledgeDocs();
+                    results.addView(infoCard("本地兜底", "接口返回为空，已展示移动端内置知识库文档。"));
+                }
                 renderCards(results, arr, "title", "summary", item -> showJsonDialog("文档详情", item));
             }
             @Override public void onError(String message) {
                 results.removeAllViews();
                 results.addView(errorView(message));
+                results.addView(infoCard("本地兜底", "知识库接口暂时不可用，先展示内置文档和标签信息。"));
+                renderCards(results, MobileOfflineFallbacks.knowledgeDocs(), "title", "summary", item -> showJsonDialog("文档详情", item));
             }
         });
     }
@@ -819,11 +959,18 @@ public class MainActivity extends Activity {
             @Override public void onSuccess(JSONObject response) {
                 body.removeAllViews();
                 body.addView(sectionTitle("学校列表"));
-                renderCards(body, asArray(response.opt("data")), "name", "location", item -> showJsonDialog("学校详情", item));
+                JSONArray arr = asArray(response.opt("data"));
+                if (empty(arr)) {
+                    arr = MobileSchoolMockData.schools();
+                    body.addView(infoCard("本地兜底", "学校接口返回为空，已展示移动端内置院校情报。"));
+                }
+                renderCards(body, arr, "name", "summary", item -> showJsonDialog("学校详情", item));
             }
             @Override public void onError(String message) {
                 body.removeAllViews();
                 body.addView(errorView(message));
+                body.addView(infoCard("本地兜底", "学校接口暂时不可用，先展示移动端内置院校情报。"));
+                renderCards(body, MobileSchoolMockData.schools(), "name", "summary", item -> showJsonDialog("学校详情", item));
             }
         });
     }
@@ -835,11 +982,18 @@ public class MainActivity extends Activity {
             @Override public void onSuccess(JSONObject response) {
                 body.removeAllViews();
                 body.addView(sectionTitle("夏令营与预推免项目"));
-                renderCards(body, asArray(response.opt("data")), "projectName", "requirements", item -> showJsonDialog("项目详情", item));
+                JSONArray arr = asArray(response.opt("data"));
+                if (empty(arr)) {
+                    arr = MobileSchoolMockData.projects();
+                    body.addView(infoCard("本地兜底", "项目接口返回为空，已展示移动端内置夏令营与预推免数据。"));
+                }
+                renderCards(body, arr, "projectName", "requirements", item -> showJsonDialog("项目详情", item));
             }
             @Override public void onError(String message) {
                 body.removeAllViews();
                 body.addView(errorView(message));
+                body.addView(infoCard("本地兜底", "院校项目接口暂时不可用，先展示移动端内置项目数据。"));
+                renderCards(body, MobileSchoolMockData.projects(), "projectName", "requirements", item -> showJsonDialog("项目详情", item));
             }
         });
     }
@@ -866,11 +1020,18 @@ public class MainActivity extends Activity {
             api.post("/api/schools/recommend", req, new ApiClient.JsonCallback() {
                 @Override public void onSuccess(JSONObject response) {
                     results.removeAllViews();
-                    results.addView(jsonCard("推荐结果", response.opt("data")));
+                    Object data = response.opt("data");
+                    if (data == null || JSONObject.NULL.equals(data)) {
+                        data = MobileSchoolMockData.recommendation(profile.getText().toString());
+                        results.addView(infoCard("本地兜底", "推荐接口返回为空，已展示移动端内置推荐逻辑。"));
+                    }
+                    results.addView(jsonCard("推荐结果", data));
                 }
                 @Override public void onError(String message) {
                     results.removeAllViews();
                     results.addView(errorView(message));
+                    results.addView(infoCard("本地兜底", "推荐接口暂时不可用，先展示移动端内置匹配建议。"));
+                    results.addView(jsonCard("推荐结果", MobileSchoolMockData.recommendation(profile.getText().toString())));
                 }
             });
         });
@@ -948,10 +1109,49 @@ public class MainActivity extends Activity {
                 card.addView(gap(6));
                 card.addView(pill(meta, BRAND, Color.WHITE));
             }
+            addSmartMetadata(card, item);
             card.setOnClickListener(v -> click.open(item));
             root.addView(card);
             animateIn(card, i * 35);
         }
+    }
+
+    private void addSmartMetadata(LinearLayout card, JSONObject item) {
+        String tagText = MobileRichTextRenderer.tagText(item);
+        if (!tagText.isEmpty()) {
+            card.addView(gap(6));
+            card.addView(wrapTags(tagText));
+        }
+        String schoolMeta = MobileRichTextRenderer.compactSchool(item);
+        String knowledgeMeta = MobileRichTextRenderer.compactKnowledge(item);
+        boolean looksSchool = !firstNonEmpty(item, "schoolName", "projectName", "deadline", "materials", "matchScore", "level").isEmpty();
+        boolean looksKnowledge = !firstNonEmpty(item, "source", "category", "chunkText", "matchedField", "distance", "similarity").isEmpty();
+        String detail = looksSchool ? schoolMeta : looksKnowledge ? knowledgeMeta : "";
+        if (!detail.isEmpty()) {
+            TextView detailView = markdown(limit(detail, 420));
+            detailView.setTextColor(Color.rgb(71, 84, 103));
+            card.addView(gap(6));
+            card.addView(detailView);
+        }
+    }
+
+    private View wrapTags(String tagText) {
+        LinearLayout row = horizontal();
+        row.setPadding(0, 0, 0, 0);
+        String[] parts = tagText.split("[,，/、 ]+");
+        int count = 0;
+        for (String part : parts) {
+            String value = part == null ? "" : part.trim();
+            if (value.isEmpty()) continue;
+            row.addView(pill(value, CYAN, Color.WHITE));
+            row.addView(gapW(6));
+            count++;
+            if (count >= 4) break;
+        }
+        if (count == 0) {
+            row.addView(pill(tagText, CYAN, Color.WHITE));
+        }
+        return row;
     }
 
     private LinearLayout richContentCard(JSONObject item, String titleKey, String bodyKey, boolean theme) {
@@ -994,7 +1194,7 @@ public class MainActivity extends Activity {
     private View jsonCard(String title, Object data) {
         LinearLayout card = glassCard();
         card.addView(text(title, 16, INK, true));
-        card.addView(markdown("```json\n" + (data == null ? "{}" : data.toString()) + "\n```"));
+        card.addView(markdown(MobileRichTextRenderer.jsonToMarkdown(data)));
         card.setOnClickListener(v -> {
             if (data instanceof JSONObject) showJsonDialog(title, (JSONObject) data);
             else if (data instanceof JSONArray) showJsonDialog(title, (JSONArray) data);
@@ -1141,7 +1341,7 @@ public class MainActivity extends Activity {
     }
 
     private void showJsonDialog(String title, Object json) {
-        showTextDialog(title, "```json\n" + (json == null ? "{}" : json.toString()) + "\n```");
+        showTextDialog(title, MobileRichTextRenderer.jsonToMarkdown(json));
     }
 
     private TextView markdown(String value) {
@@ -1151,21 +1351,7 @@ public class MainActivity extends Activity {
     }
 
     private Spanned md(String raw) {
-        String html = raw
-                .replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;");
-        html = html.replaceAll("(?m)^###\\s*(.+)$", "<b>$1</b><br/>")
-                .replaceAll("(?m)^##\\s*(.+)$", "<h3>$1</h3>")
-                .replaceAll("(?m)^#\\s*(.+)$", "<h2>$1</h2>")
-                .replaceAll("\\*\\*(.+?)\\*\\*", "<b>$1</b>")
-                .replaceAll("`([^`]+)`", "<font color='#4F5CFF'>$1</font>")
-                .replaceAll("(?m)^[-*]\\s+(.+)$", "• $1<br/>")
-                .replace("\n", "<br/>");
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            return Html.fromHtml(html, Html.FROM_HTML_MODE_LEGACY);
-        }
-        return Html.fromHtml(html);
+        return MobileRichTextRenderer.render(raw);
     }
 
     private LinearLayout glassCard() {
