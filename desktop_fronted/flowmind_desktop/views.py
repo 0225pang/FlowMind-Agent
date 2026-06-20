@@ -1253,6 +1253,7 @@ class AgentPage(BasePage):
         text = text.strip()
         if not text:
             return
+        self._last_sent = text
         self.input.clear()
         self.add_message("user", text)
         self.assistant_markdown = ""
@@ -1290,7 +1291,25 @@ class AgentPage(BasePage):
 
     def on_stream_fail(self, message: str) -> None:
         self.send_button.setEnabled(True)
-        self.trace_output.appendPlainText(f"[error] {message}")
+        self.thinking_output.appendPlainText(f"[error] {message}")
+        error_widget = QWidget()
+        error_layout = QHBoxLayout(error_widget)
+        error_layout.setContentsMargins(0, 0, 0, 0)
+        hint = QLabel(f"流式对话失败：{message}")
+        hint.setObjectName("RetryHint")
+        hint.setWordWrap(True)
+        retry = QPushButton("重新发送")
+        retry.setObjectName("RetryButton")
+        retry.clicked.connect(lambda: self.send_prompt(self._last_sent or ""))
+        error_layout.addWidget(hint, 1)
+        error_layout.addWidget(retry)
+        if self.chat_layout.count() and self.chat_layout.itemAt(self.chat_layout.count() - 1).spacerItem():
+            self.chat_layout.takeAt(self.chat_layout.count() - 1)
+        self.chat_layout.addWidget(error_widget)
+        self.chat_layout.addStretch(1)
+        self.chat_area.verticalScrollBar().setValue(self.chat_area.verticalScrollBar().maximum())
+        if self.assistant_bubble:
+            self.assistant_bubble.setMarkdown(self.assistant_markdown or f"*[流式对话中断：{message}]*")
 
 
 class KnowledgePage(BasePage):
@@ -1367,6 +1386,9 @@ class KnowledgePage(BasePage):
         self.doc_tag_edit.setPlaceholderText("用逗号、顿号或中文逗号分隔标签")
         save_tags = primary_button("保存标签")
         save_tags.clicked.connect(self.save_doc_tags)
+        self.doc_tag_chips_layout = QHBoxLayout()
+        self.doc_tag_chips_layout.setSpacing(4)
+        self.doc_tag_chips: list[QPushButton] = []
         self.doc_summary = MarkdownPanel()
         self.doc_summary.setMinimumHeight(180)
         self.detail = JsonPanel()
@@ -1390,6 +1412,7 @@ class KnowledgePage(BasePage):
         doc_actions.addWidget(open_link)
         detail_card.layout.addLayout(doc_actions)
         detail_card.layout.addWidget(QLabel("编辑标签"))
+        detail_card.layout.addLayout(self.doc_tag_chips_layout)
         detail_card.layout.addWidget(self.doc_tag_edit)
         detail_card.layout.addWidget(save_tags)
         detail_card.layout.addWidget(QLabel("摘要 / 正文片段"))
@@ -1573,10 +1596,31 @@ class KnowledgePage(BasePage):
             tags = self.doc_tags_list(raw)
             self.doc_tags.set_value("、".join(tags))
             self.doc_tag_edit.setText("、".join(tags))
+            self._render_tag_chips(tags)
             self.doc_source.set_value(value(raw, "source", "feishuType", default="-"))
             self.doc_url.set_value(value(raw, "feishuUrl", default="-"))
             self.doc_summary.set_text(str(value(raw, "summary", "content", default="")))
             self.detail.set_json(raw)
+
+    def _render_tag_chips(self, tags: list[str]) -> None:
+        for chip in self.doc_tag_chips:
+            chip.deleteLater()
+        self.doc_tag_chips.clear()
+        for tag in tags:
+            btn = QPushButton(f"× {tag}")
+            btn.setObjectName("ChipTag")
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(lambda checked=False, t=tag: self._remove_tag_chip(t))
+            self.doc_tag_chips.append(btn)
+            self.doc_tag_chips_layout.addWidget(btn)
+        self.doc_tag_chips_layout.addStretch(1)
+
+    def _remove_tag_chip(self, tag: str) -> None:
+        tags = self.doc_tag_edit.text().strip()
+        current = [t.strip() for t in tags.replace("、", ",").replace("，", ",").split(",") if t.strip()]
+        filtered = [t for t in current if t != tag]
+        self.doc_tag_edit.setText("、".join(filtered))
+        self._render_tag_chips(filtered)
 
     def open_doc_card(self, payload: object) -> None:
         if not isinstance(payload, dict):
@@ -2688,7 +2732,62 @@ class ContentPage(BasePage):
             asset_card.layout.addLayout(asset_row)
             self.sop_card_layout.addWidget(asset_card)
 
+        actions_row = QHBoxLayout()
+        save_lib = primary_button("一键入库")
+        save_lib.setToolTip("将生成结果保存到文案库")
+        save_lib.clicked.connect(lambda: self.save_sop_to_library(result))
+        save_doc = QPushButton("创建飞书文档")
+        save_doc.setToolTip("将生成结果创建为飞书文档")
+        save_doc.clicked.connect(lambda: self.save_sop_to_feishu(result))
+        actions_row.addStretch(1)
+        actions_row.addWidget(save_lib)
+        actions_row.addWidget(save_doc)
+        self.sop_card_layout.addLayout(actions_row)
         self.sop_card_layout.addStretch(1)
+
+    def save_sop_to_library(self, result: dict[str, Any]) -> None:
+        drafts = result.get("drafts") or result.get("copies") or []
+        if not drafts:
+            QMessageBox.information(self, "FlowMind", "没有可入库的草稿")
+            return
+        count = 0
+        for draft in drafts:
+            if not isinstance(draft, dict):
+                continue
+            payload = {
+                "title": str(value(draft, "title", "name", default="SOP生成草稿")),
+                "channel": str(value(draft, "channel", "style", default="platform")),
+                "version": str(value(draft, "version", default="v1")),
+                "content": str(value(draft, "content", "body", "text", default=str(draft))),
+                "usageStatus": "unused",
+                "rating": 0,
+            }
+            try:
+                self.client.create_content_draft(payload)
+                count += 1
+            except Exception:
+                pass
+        QMessageBox.information(self, "FlowMind", f"已入库 {count} 条文案")
+
+    def save_sop_to_feishu(self, result: dict[str, Any]) -> None:
+        title = str(value(result.get("input", {}) if isinstance(result.get("input"), dict) else {},
+                         "topic", default="SOP生成内容"))
+        drafts = result.get("drafts") or []
+        markdown = f"# {title}\n\n"
+        if isinstance(drafts, list):
+            for idx, draft in enumerate(drafts, 1):
+                if isinstance(draft, dict):
+                    markdown += f"## 版本{idx}\n{str(value(draft, 'content', 'body', 'text', default=str(draft)))}\n\n"
+                else:
+                    markdown += f"## 版本{idx}\n{str(draft)}\n\n"
+        try:
+            result_data = self.client.feishu_action("create_doc", {
+                "title": title,
+                "content": markdown,
+            })
+            QMessageBox.information(self, "FlowMind", f"飞书文档已创建：{result_data}")
+        except Exception as exc:
+            QMessageBox.warning(self, "FlowMind", f"创建飞书文档失败：{exc}")
 
     def update_content_stats(self) -> None:
         rated = 0
@@ -3191,6 +3290,7 @@ class StudentsPage(BasePage):
             progress.setRange(0, 100)
             progress.setValue(self.parse_progress(value(row, "progress", default=0)))
             progress.setFormat("%p%")
+            progress.setObjectName(self._progress_style(risk))
             self.table.setCellWidget(row_index, 8, stage_badge)
             self.table.setCellWidget(row_index, 9, risk_badge)
             self.table.setCellWidget(row_index, 10, progress)
@@ -3219,6 +3319,8 @@ class StudentsPage(BasePage):
             progress.setRange(0, 100)
             progress.setValue(self.parse_progress(value(raw, "progress", default=0)))
             progress.setFormat("申请进度 %p%")
+            risk_val = str(value(raw, "risk", "riskLevel", default="低"))
+            progress.setObjectName(self._progress_style(risk_val))
             card.layout.addWidget(progress)
             actions = QHBoxLayout()
             analyze = QPushButton("AI 分析")
@@ -3253,6 +3355,7 @@ class StudentsPage(BasePage):
         self.student_risk_badge.setText(f"风险：{risk}")
         self.student_risk_badge.set_kind(self.risk_kind(risk))
         self.student_progress_bar.setValue(self.parse_progress(value(raw, "progress", default=0)))
+        self.student_progress_bar.setObjectName(self._progress_style(risk))
 
     def open_student_card(self, payload: object) -> None:
         if isinstance(payload, dict):
@@ -3284,6 +3387,15 @@ class StudentsPage(BasePage):
         if risk == "高":
             return "danger"
         return "info"
+
+    def _progress_style(self, risk: str) -> str:
+        if risk == "低":
+            return "LowRisk"
+        if risk == "中":
+            return "MediumRisk"
+        if risk == "高":
+            return "HighRisk"
+        return "LowRisk"
 
     def parse_progress(self, raw: Any) -> int:
         try:
@@ -3404,9 +3516,24 @@ class StudentDialog(QDialog):
             self.fields[key] = edit
             layout.addWidget(edit)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self.accept)
+        buttons.accepted.connect(self.validate_and_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def validate_and_accept(self) -> None:
+        name = self.fields["name"].text().strip()
+        if not name:
+            show_error(self, "姓名不能为空")
+            return
+        try:
+            gpa = float(self.fields["gpa"].text().strip() or "0")
+            if gpa < 0 or gpa > 4.0:
+                show_error(self, "GPA 应在 0.0-4.0 之间")
+                return
+        except ValueError:
+            show_error(self, "GPA 格式不正确")
+            return
+        self.accept()
 
     def payload(self) -> dict[str, Any]:
         payload = {key: edit.text() for key, edit in self.fields.items()}
@@ -3456,6 +3583,12 @@ class SchoolsPage(BasePage):
     def build_projects(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
+        search_row = QHBoxLayout()
+        self.project_search = QLineEdit()
+        self.project_search.setPlaceholderText("搜索项目名称、学校或项目类型...")
+        self.project_search.textChanged.connect(self.filter_projects)
+        search_row.addWidget(self.project_search)
+        layout.addLayout(search_row)
         splitter = QSplitter()
         project_tabs = QTabWidget()
         project_cards_page = QWidget()
@@ -3655,7 +3788,15 @@ class SchoolsPage(BasePage):
         self.current_project = project
         self.project_title.setText(str(value(project, "projectName", default="未命名项目")))
         self.project_school.set_value(value(project, "schoolName", default="-"))
-        self.project_deadline.set_value(value(project, "deadline", default="-"))
+        deadline = str(value(project, "deadline", default="-"))
+        urgency = self._deadline_urgency(deadline)
+        self.project_deadline.value.setText(deadline)
+        self.project_deadline.value.setObjectName(f"Deadline{urgency}")
+        self.project_deadline.value.setStyleSheet(
+            f"QLabel#Deadline{urgency} {{ color: {'#ef4444' if urgency == 'Urgent' else '#f59e0b' if urgency == 'Warning' else '#19b37b'}; "
+            f"font-weight: {850 if urgency == 'Urgent' else 750 if urgency == 'Warning' else 650}; "
+            f"font-size: {'15px' if urgency == 'Urgent' else '14px' if urgency == 'Warning' else '13px'}; }}"
+        )
         score = value(project, "matchScore", default="-")
         self.project_match.setText(f"匹配 {score}")
         try:
@@ -3665,6 +3806,35 @@ class SchoolsPage(BasePage):
             self.project_match.set_kind("info")
         self.project_requirements.set_text(str(value(project, "requirements", default="")))
         self.project_materials.set_text(str(value(project, "materials", default="")))
+
+    def _deadline_urgency(self, deadline: str) -> str:
+        from datetime import date
+        try:
+            d = deadline.strip()
+            parsed = datetime.strptime(d, "%Y-%m-%d").date()
+            diff = (parsed - date.today()).days
+            return "Urgent" if diff <= 7 else "Warning" if diff <= 14 else "Safe"
+        except (ValueError, TypeError):
+            return "Safe"
+
+    def filter_projects(self) -> None:
+        query = self.project_search.text().strip().lower()
+        if not hasattr(self, "project_rows"):
+            return
+        if not query:
+            self.render_project_cards(self.project_rows)
+            self.project_table.setRowCount(len(self.project_rows))
+            self.decorate_project_table(self.project_rows)
+            return
+        filtered = [
+            r for r in self.project_rows
+            if query in str(value(r, "projectName", default="")).lower()
+            or query in str(value(r, "schoolName", default="")).lower()
+            or query in str(value(r, "projectType", default="")).lower()
+        ]
+        self.render_project_cards(filtered)
+        self.project_table.setRowCount(len(filtered))
+        self.decorate_project_table(filtered)
 
     def selected_project_raw(self) -> dict[str, Any] | None:
         if self.current_project:
@@ -4728,8 +4898,20 @@ class SettingsPage(BasePage):
             header.addWidget(Badge(f"{len(selected)} 项权限", "success" if selected else "warning"))
             card.layout.addLayout(header)
             for group_name, group_permissions in self.group_permissions(permissions).items():
-                group_box = Card(group_name)
-                group_box.layout.setContentsMargins(12, 10, 12, 10)
+                group_frame = QFrame()
+                group_frame.setObjectName("CollapseSection")
+                group_vbox = QVBoxLayout(group_frame)
+                group_vbox.setContentsMargins(0, 0, 0, 0)
+                group_vbox.setSpacing(6)
+                toggle = QPushButton(f"▾ {group_name} ({len(group_permissions)} 项)")
+                toggle.setObjectName("CollapseToggle")
+                toggle.setCheckable(True)
+                toggle.setChecked(True)
+                group_vbox.addWidget(toggle)
+                group_inner = QWidget()
+                group_inner_layout = QVBoxLayout(group_inner)
+                group_inner_layout.setContentsMargins(12, 4, 12, 4)
+                group_inner_layout.setSpacing(4)
                 for permission in group_permissions:
                     code = self.permission_code(permission)
                     if not code:
@@ -4739,9 +4921,11 @@ class SettingsPage(BasePage):
                     check = QCheckBox(f"{name}    {path}")
                     check.setChecked(code in selected)
                     check.setEnabled(self.is_admin and role_code != "TEAM_ADMIN")
-                    group_box.layout.addWidget(check)
+                    group_inner_layout.addWidget(check)
                     self.role_permission_checks[(role_code, code)] = check
-                card.layout.addWidget(group_box)
+                toggle.toggled.connect(lambda checked, w=group_inner: w.setVisible(checked))
+                group_vbox.addWidget(group_inner)
+                card.layout.addWidget(group_frame)
             actions = QHBoxLayout()
             select_all = QPushButton("全选")
             clear_all = QPushButton("清空")

@@ -394,6 +394,24 @@ class ApiClient:
                 rows = [row for row in rows if row.get("usageStatus") == usage_status]
             return fallback.copy(rows)
 
+    def create_content_draft(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """通用文案入库，不强制绑定 theme_id，适合 SOP 一键入库。"""
+        try:
+            return self.request("POST", "/api/content/drafts", json_body=payload) or {}
+        except Exception:
+            row = {
+                "id": fallback.next_id(fallback.COPY_DRAFTS),
+                "themeId": 0,
+                "usageStatus": "未使用",
+                "generatedAt": "2026-06-19 00:00",
+                "feedback": "",
+                "rating": 0,
+                "imageSuggestion": "",
+                **payload,
+            }
+            fallback.COPY_DRAFTS.insert(0, row)
+            return fallback.copy(row)
+
     def create_draft(self, theme_id: int, payload: dict[str, Any]) -> dict[str, Any]:
         try:
             return self.request("POST", f"/api/content/themes/{theme_id}/drafts", json_body=payload) or {}
