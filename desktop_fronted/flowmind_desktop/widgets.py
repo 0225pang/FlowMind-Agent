@@ -371,8 +371,25 @@ class ChartCanvas(QWidget):
 
 
 class ChartCard(Card):
-    def __init__(self, title: str, color: str = "#5b6cff"):
-        super().__init__(title)
+    def __init__(self, title: str, color: str = "#5b6cff", desc: str = "", refresh: Callable[[], None] | None = None):
+        super().__init__()
+        header = QHBoxLayout()
+        text = QVBoxLayout()
+        title_label = QLabel(title)
+        title_label.setObjectName("SectionTitle")
+        text.addWidget(title_label)
+        if desc:
+            desc_label = QLabel(desc)
+            desc_label.setObjectName("Muted")
+            text.addWidget(desc_label)
+        header.addLayout(text, 1)
+        refresh_button = QPushButton("刷新")
+        refresh_button.setObjectName("PromptChip")
+        refresh_button.setVisible(refresh is not None)
+        if refresh:
+            refresh_button.clicked.connect(refresh)
+        header.addWidget(refresh_button)
+        self.layout.addLayout(header)
         self.canvas = ChartCanvas()
         self.color = color
         self.layout.addWidget(self.canvas, 1)
