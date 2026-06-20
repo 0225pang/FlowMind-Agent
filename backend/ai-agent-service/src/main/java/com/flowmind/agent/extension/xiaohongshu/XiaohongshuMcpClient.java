@@ -14,9 +14,13 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 @Component
 public class XiaohongshuMcpClient {
@@ -49,13 +53,17 @@ public class XiaohongshuMcpClient {
     }
 
     public SearchResult searchHotNotes(String topic, int limit) {
+        return searchHotNotes(topic, limit, SearchOptions.empty());
+    }
+
+    public SearchResult searchHotNotes(String topic, int limit, SearchOptions options) {
         String safeTopic = normalizeTopic(topic);
         int safeLimit = Math.max(3, Math.min(limit, 20));
         if (!enabled || baseUrl == null || baseUrl.isBlank()) {
             return SearchResult.mock(safeTopic, safeLimit, "xiaohongshu-mcp is not configured; using FlowMind mock hot notes.");
         }
         try {
-            SearchResult result = callSearch(safeTopic, safeLimit);
+            SearchResult result = callSearch(safeTopic, safeLimit, options == null ? SearchOptions.empty() : options);
             if (result.notes().isEmpty() && mockFallback) {
                 return SearchResult.mock(safeTopic, safeLimit, "xiaohongshu-mcp returned empty data; using FlowMind mock hot notes.");
             }
@@ -66,6 +74,52 @@ public class XiaohongshuMcpClient {
             }
             return new SearchResult(safeTopic, List.of(), "failed", e.getMessage());
         }
+    }
+
+    public BatchSearchResult searchHotNotesBatch(String topic, String topics, int finalLimit, int perTopicLimit) {
+        return searchHotNotesBatch(topic, topics, finalLimit, perTopicLimit, SearchOptions.empty());
+    }
+
+    public BatchSearchResult searchHotNotesBatch(String topic, String topics, int finalLimit, int perTopicLimit, SearchOptions options) {
+        String seedTopic = normalizeTopic(topic);
+        int safeFinalLimit = Math.max(1, Math.min(finalLimit, 30));
+        int safePerTopicLimit = Math.max(3, Math.min(perTopicLimit, 20));
+        List<String> keywordList = buildKeywordList(seedTopic, topics);
+        Map<String, BatchHotNote> deduped = new LinkedHashMap<>();
+        List<Map<String, Object>> traces = new ArrayList<>();
+        boolean hasRealResult = false;
+
+        for (String keyword : keywordList) {
+            SearchResult result = searchHotNotes(keyword, safePerTopicLimit, options);
+            traces.add(Map.of(
+                    "keyword", keyword,
+                    "mode", result.mode(),
+                    "count", result.notes().size(),
+                    "message", result.message()
+            ));
+            if ("real".equalsIgnoreCase(result.mode()) && !result.notes().isEmpty()) {
+                hasRealResult = true;
+            }
+            for (HotNote note : result.notes()) {
+                String key = noteKey(note);
+                if (key.isBlank() || deduped.containsKey(key)) {
+                    continue;
+                }
+                deduped.put(key, new BatchHotNote(keyword, note));
+            }
+            if (deduped.size() >= safeFinalLimit * 2) {
+                break;
+            }
+        }
+
+        List<BatchHotNote> notes = deduped.values().stream()
+                .sorted(Comparator.comparingLong(BatchHotNote::heatScore).reversed())
+                .limit(safeFinalLimit)
+                .toList();
+        String mode = hasRealResult ? "real" : (notes.isEmpty() ? "empty" : "mock");
+        String message = "Searched " + keywordList.size() + " Xiaohongshu keywords and returned "
+                + notes.size() + " deduplicated notes.";
+        return new BatchSearchResult(seedTopic, keywordList, notes, traces, mode, message);
     }
 
     public Map<String, Object> readNoteDetail(String noteIdOrUrl) {
@@ -100,30 +154,55 @@ public class XiaohongshuMcpClient {
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 return Map.of("ok", false, "message", "HTTP " + response.statusCode(), "body", response.body());
             }
-            JsonNode root = objectMapper.readTree(response.body());
+            JsonNode root = readPossiblyWrappedJson(response.body());
             return objectMapper.convertValue(root, Map.class);
         } catch (Exception e) {
             return Map.of("ok", false, "message", e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         }
     }
 
-    private SearchResult callSearch(String topic, int limit) throws IOException, InterruptedException {
-        String url = trimBase(baseUrl) + searchPath
-                + "?keyword=" + URLEncoder.encode(topic, StandardCharsets.UTF_8)
-                + "&limit=" + limit;
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(url))
+    private SearchResult callSearch(String topic, int limit, SearchOptions options) throws IOException, InterruptedException {
+        String url = trimBase(baseUrl) + searchPath;
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .timeout(Duration.ofSeconds(Math.max(5, timeoutSeconds)))
-                .header("Accept", "application/json")
-                .GET()
-                .build();
+                .header("Accept", "application/json");
+        HttpRequest request;
+        if (options != null && options.hasAnyFilter()) {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("keyword", topic);
+            body.put("filters", options.toFilterMap());
+            request = builder
+                    .uri(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body), StandardCharsets.UTF_8))
+                    .build();
+        } else {
+            String getUrl = url
+                    + "?keyword=" + URLEncoder.encode(topic, StandardCharsets.UTF_8)
+                    + "&limit=" + limit;
+            request = builder
+                    .uri(URI.create(getUrl))
+                    .GET()
+                    .build();
+        }
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             throw new IOException("HTTP " + response.statusCode() + ": " + trim(response.body(), 500));
         }
-        JsonNode root = objectMapper.readTree(response.body());
+        JsonNode root = readPossiblyWrappedJson(response.body());
         List<HotNote> notes = parseNotes(root, limit);
         return new SearchResult(topic, notes, "real", "xiaohongshu-mcp search returned " + notes.size() + " notes.");
+    }
+
+    private JsonNode readPossiblyWrappedJson(String body) throws IOException {
+        JsonNode root = objectMapper.readTree(body);
+        if (root != null && root.isTextual()) {
+            String text = root.asText("");
+            if (!text.isBlank() && (text.trim().startsWith("{") || text.trim().startsWith("["))) {
+                return objectMapper.readTree(text);
+            }
+        }
+        return root;
     }
 
     private List<HotNote> parseNotes(JsonNode root, int limit) {
@@ -138,6 +217,10 @@ public class XiaohongshuMcpClient {
         int count = 0;
         for (JsonNode item : array) {
             if (count >= limit) break;
+            String modelType = text(item, "modelType", "model_type");
+            if (!modelType.isBlank() && !"note".equalsIgnoreCase(modelType)) {
+                continue;
+            }
             JsonNode noteCard = item.path("noteCard");
             JsonNode interactInfo = noteCard.path("interactInfo");
             String feedId = text(item, "id", "feedId", "feed_id", "noteId", "note_id");
@@ -148,6 +231,9 @@ public class XiaohongshuMcpClient {
                     pathText(item, "noteCard", "title"),
                     text(item, "title", "displayTitle", "name")
             );
+            if (feedId.isBlank() || title.isBlank()) {
+                continue;
+            }
             String author = firstNonBlank(
                     pathText(item, "noteCard", "user", "nickname"),
                     pathText(item, "noteCard", "user", "nickName"),
@@ -308,6 +394,44 @@ public class XiaohongshuMcpClient {
         return value.isEmpty() ? "保研经验" : trim(value, 80);
     }
 
+    private List<String> buildKeywordList(String seedTopic, String topics) {
+        Set<String> values = new LinkedHashSet<>();
+        if (topics != null && !topics.isBlank()) {
+            for (String item : topics.split("[,，\\n\\r]+")) {
+                String keyword = item.trim();
+                if (!keyword.isBlank()) {
+                    values.add(trim(keyword, 80));
+                }
+            }
+        }
+        values.add(seedTopic);
+        if (seedTopic.contains("保研") || seedTopic.contains("推免")) {
+            values.add("保研");
+            values.add("保研经验");
+            values.add("保研面试");
+            values.add("保研简历");
+            values.add("保研文书");
+            values.add("推免");
+            values.add("夏令营保研");
+            values.add("预推免");
+            values.add("导师套磁");
+            values.add("保研材料");
+        }
+        return values.stream().limit(12).toList();
+    }
+
+    private String noteKey(HotNote note) {
+        if (note == null) return "";
+        String id = note.id() == null ? "" : note.id().trim();
+        if (id.contains("|")) {
+            return id.substring(0, id.indexOf('|'));
+        }
+        if (!id.isBlank()) {
+            return id;
+        }
+        return (note.title() + "|" + note.author()).trim();
+    }
+
     private String trimBase(String value) {
         String result = value == null ? "" : value.trim();
         while (result.endsWith("/")) result = result.substring(0, result.length() - 1);
@@ -328,6 +452,119 @@ public class XiaohongshuMcpClient {
             notes.add(new HotNote("mock-4", "导师视角看" + topic + "，这些细节很加分", "导师视角 + 避坑总结，强调表达专业性和证据链。", "科研助教D", "", "", 6100, 1350, 166, List.of("导师", "避坑", "科研")));
             notes.add(new HotNote("mock-5", topic + "从0到1复盘", "故事型结构，用前后对比制造可信度，适合情绪增强版。", "上岸案例E", "", "", 5200, 990, 128, List.of("复盘", "故事", "上岸")));
             return new SearchResult(topic, notes.stream().limit(limit).toList(), "mock", message);
+        }
+    }
+
+    public record SearchOptions(String sortBy,
+                                String noteType,
+                                String publishTime,
+                                String searchScope,
+                                String location) {
+        static SearchOptions empty() {
+            return new SearchOptions("", "", "", "", "");
+        }
+
+        public boolean hasAnyFilter() {
+            return !normalizeSortBy(sortBy).isBlank()
+                    || !normalizeNoteType(noteType).isBlank()
+                    || !normalizePublishTime(publishTime).isBlank()
+                    || !normalizeSearchScope(searchScope).isBlank()
+                    || !normalizeLocation(location).isBlank();
+        }
+
+        public Map<String, Object> toFilterMap() {
+            Map<String, Object> filters = new LinkedHashMap<>();
+            putIfNotBlank(filters, "sort_by", normalizeSortBy(sortBy));
+            putIfNotBlank(filters, "note_type", normalizeNoteType(noteType));
+            putIfNotBlank(filters, "publish_time", normalizePublishTime(publishTime));
+            putIfNotBlank(filters, "search_scope", normalizeSearchScope(searchScope));
+            putIfNotBlank(filters, "location", normalizeLocation(location));
+            return filters;
+        }
+
+        private static void putIfNotBlank(Map<String, Object> map, String key, String value) {
+            if (value != null && !value.isBlank()) {
+                map.put(key, value);
+            }
+        }
+
+        private static String normalizeSortBy(String value) {
+            String text = clean(value);
+            if (text.isBlank() || "all".equals(text) || "default".equals(text) || "综合".equals(text)) return "";
+            if (containsAny(text, "latest", "new", "最新")) return "最新";
+            if (containsAny(text, "like", "点赞", "最多点赞")) return "最多点赞";
+            if (containsAny(text, "comment", "评论", "最多评论")) return "最多评论";
+            if (containsAny(text, "collect", "save", "收藏", "最多收藏")) return "最多收藏";
+            return text;
+        }
+
+        private static String normalizeNoteType(String value) {
+            String text = clean(value);
+            if (text.isBlank() || "all".equals(text) || "不限".equals(text)) return "";
+            if (containsAny(text, "video", "视频")) return "视频";
+            if (containsAny(text, "image", "photo", "图文")) return "图文";
+            return text;
+        }
+
+        private static String normalizePublishTime(String value) {
+            String text = clean(value);
+            if (text.isBlank() || "all".equals(text) || "default".equals(text) || "不限".equals(text)) return "";
+            if (containsAny(text, "day", "24h", "一天", "1天")) return "一天内";
+            if (containsAny(text, "week", "7d", "七天", "一周", "1周")) return "一周内";
+            if (containsAny(text, "half", "six", "6m", "半年", "六个月")) return "半年内";
+            if (containsAny(text, "3m", "three", "三个月", "3个月", "90天")) return "半年内";
+            return text;
+        }
+
+        private static String normalizeSearchScope(String value) {
+            String text = clean(value);
+            if (text.isBlank() || "all".equals(text) || "不限".equals(text)) return "";
+            if (containsAny(text, "seen", "已看过")) return "已看过";
+            if (containsAny(text, "unseen", "未看过")) return "未看过";
+            if (containsAny(text, "follow", "已关注")) return "已关注";
+            return text;
+        }
+
+        private static String normalizeLocation(String value) {
+            String text = clean(value);
+            if (text.isBlank() || "all".equals(text) || "不限".equals(text)) return "";
+            if (containsAny(text, "city", "同城")) return "同城";
+            if (containsAny(text, "near", "附近")) return "附近";
+            return text;
+        }
+
+        private static String clean(String value) {
+            return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+        }
+
+        private static boolean containsAny(String text, String... needles) {
+            for (String needle : needles) {
+                if (needle != null && !needle.isBlank() && text.contains(needle.toLowerCase(Locale.ROOT))) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    public record BatchSearchResult(String topic,
+                                    List<String> keywords,
+                                    List<BatchHotNote> notes,
+                                    List<Map<String, Object>> traces,
+                                    String mode,
+                                    String message) {
+    }
+
+    public record BatchHotNote(String sourceKeyword, HotNote note) {
+        public long heatScore() {
+            return note.likeCount() * 3 + note.collectCount() * 4 + note.commentCount() * 5;
+        }
+
+        public Map<String, Object> toMap() {
+            Map<String, Object> map = new LinkedHashMap<>(note.toMap());
+            map.put("sourceKeyword", sourceKeyword);
+            map.put("heatScore", heatScore());
+            return map;
         }
     }
 

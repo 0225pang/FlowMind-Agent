@@ -33,6 +33,7 @@ backend/app-service/src/main/resources/application-secret.yml
 
 # === Runtime artifacts ===
 *.log
+.runtime/
 pdf-downloads/
 flowmind_lark_auth_qr*.png
 

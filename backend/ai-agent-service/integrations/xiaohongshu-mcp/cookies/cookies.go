@@ -13,6 +13,34 @@ type Cookier interface {
 	DeleteCookies() error
 }
 
+func findFlowMindRuntimeCookiesPath() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	current := filepath.Clean(wd)
+	for {
+		if isFlowMindProjectRoot(current) {
+			return filepath.Join(current, ".runtime", "xiaohongshu", "cookies.json")
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return ""
+		}
+		current = parent
+	}
+}
+
+func isFlowMindProjectRoot(path string) bool {
+	if info, err := os.Stat(filepath.Join(path, "backend")); err != nil || !info.IsDir() {
+		return false
+	}
+	if info, err := os.Stat(filepath.Join(path, "docs")); err != nil || !info.IsDir() {
+		return false
+	}
+	return true
+}
+
 type localCookie struct {
 	path string
 }
@@ -40,6 +68,11 @@ func (c *localCookie) LoadCookies() ([]byte, error) {
 
 // SaveCookies 保存 cookies 到文件中。
 func (c *localCookie) SaveCookies(data []byte) error {
+	if parent := filepath.Dir(c.path); parent != "." && parent != "" {
+		if err := os.MkdirAll(parent, 0755); err != nil {
+			return err
+		}
+	}
 	return os.WriteFile(c.path, data, 0644)
 }
 
@@ -56,6 +89,14 @@ func (c *localCookie) DeleteCookies() error {
 // 为了向后兼容，如果旧路径 /tmp/cookies.json 存在，则继续使用；
 // 否则使用当前目录下的 cookies.json
 func GetCookiesFilePath() string {
+	path := os.Getenv("COOKIES_PATH")
+	if path != "" {
+		return path
+	}
+	if projectPath := findFlowMindRuntimeCookiesPath(); projectPath != "" {
+		return projectPath
+	}
+
 	// 旧路径：/tmp/cookies.json
 	tmpDir := os.TempDir()
 	oldPath := filepath.Join(tmpDir, "cookies.json")
@@ -66,11 +107,6 @@ func GetCookiesFilePath() string {
 		return oldPath
 	}
 
-	path := os.Getenv("COOKIES_PATH") // 判断环境变量
-	if path == "" {
-		path = "cookies.json" // fallback，本地调试时用当前目录
-	}
-
 	// 文件不存在，使用新路径（当前目录）
-	return path
+	return "cookies.json"
 }

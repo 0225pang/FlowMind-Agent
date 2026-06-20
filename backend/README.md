@@ -162,11 +162,14 @@ flowmind:
       working-dir: ${FLOWMIND_XHS_MCP_WORKING_DIR:ai-agent-service/integrations/xiaohongshu-mcp}
       port: ${FLOWMIND_XHS_MCP_PORT:18060}
       headless: ${FLOWMIND_XHS_MCP_HEADLESS:true}
+      browser-bin: ${FLOWMIND_XHS_MCP_BROWSER_BIN:}
+      chrome-user-data-dir: ${FLOWMIND_XHS_MCP_CHROME_USER_DATA_DIR:.runtime/xiaohongshu/chrome-profile}
+      cookies-path: ${FLOWMIND_XHS_MCP_COOKIES_PATH:.runtime/xiaohongshu/cookies.json}
       go-cache: ${FLOWMIND_XHS_MCP_GO_CACHE:.gocache/xiaohongshu-mcp}
       base-url: ${FLOWMIND_XHS_MCP_BASE_URL:http://localhost:18060}
       search-path: /api/v1/feeds/search
       detail-path: /api/v1/feeds/detail
-      timeout-seconds: 20
+      timeout-seconds: 120
       default-limit: 8
       mock-fallback: true
 ```
@@ -179,6 +182,9 @@ flowmind:
 - `command`：启动命令，默认 `go`。
 - `working-dir`：MCP 源码目录。
 - `port`：MCP 服务端口，默认 `18060`。
+- `browser-bin`：浏览器二进制路径，默认留空，由 MCP 自动探测系统 Chrome；需要强制指定时再配置 `FLOWMIND_XHS_MCP_BROWSER_BIN`。
+- `chrome-user-data-dir`：项目内 Chrome 自动化 profile，默认 `.runtime/xiaohongshu/chrome-profile`。
+- `cookies-path`：项目内小红书登录态 cookies，默认 `.runtime/xiaohongshu/cookies.json`。
 - `go-cache`：MCP 编译缓存目录，默认放在项目 `.gocache/xiaohongshu-mcp`，避免 Windows 默认 Go 缓存目录权限问题。
 - `base-url`：FlowMind 调用 MCP 的地址。
 - `search-path`：搜索接口路径。

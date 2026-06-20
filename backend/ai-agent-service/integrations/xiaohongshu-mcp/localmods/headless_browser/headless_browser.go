@@ -2,6 +2,10 @@ package headless_browser
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
@@ -22,6 +26,7 @@ type Config struct {
 	ChromeBinPath string
 	Proxy         string
 	Trace         bool
+	UserDataDir   string
 }
 
 type Option func(*Config)
@@ -33,6 +38,7 @@ func newDefaultConfig() *Config {
 		Cookies:       "",
 		ChromeBinPath: "",
 		Trace:         false,
+		UserDataDir:   "",
 	}
 }
 
@@ -72,16 +78,58 @@ func WithTrace() Option {
 	}
 }
 
+func WithUserDataDir(path string) Option {
+	return func(c *Config) {
+		c.UserDataDir = path
+	}
+}
+
 func New(options ...Option) *Browser {
 	cfg := newDefaultConfig()
 	for _, option := range options {
 		option(cfg)
 	}
 
+	userDataDir := cfg.UserDataDir
+	if userDataDir == "" {
+		if envDir := os.Getenv("XHS_CHROME_USER_DATA_DIR"); envDir != "" {
+			userDataDir = envDir
+		}
+	}
+	if userDataDir == "" {
+		if wd, err := os.Getwd(); err == nil {
+			userDataDir = filepath.Join(wd, ".chrome-profile")
+		} else {
+			userDataDir = filepath.Join(os.TempDir(), "flowmind-xhs-chrome-profile")
+		}
+	}
+	userDataDir = filepath.Join(userDataDir, fmt.Sprintf("session-%d-%d", os.Getpid(), time.Now().UnixNano()))
+	if err := os.MkdirAll(userDataDir, 0755); err != nil {
+		logrus.Warnf("failed to create chrome user data dir %s: %v", userDataDir, err)
+	}
+	cacheDir := filepath.Join(userDataDir, "cache")
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		logrus.Warnf("failed to create chrome cache dir %s: %v", cacheDir, err)
+	}
+
 	l := launcher.New().
 		Leakless(false).
 		Headless(cfg.Headless).
-		Set("--no-sandbox").
+		Set("no-sandbox").
+		Set("disable-breakpad").
+		Set("disable-crash-reporter").
+		Set("disable-crashpad").
+		Set("disable-background-networking").
+		Set("disable-component-update").
+		Set("no-first-run").
+		Set("no-default-browser-check").
+		Set("disable-dev-shm-usage").
+		Set("disable-gpu").
+		Set("disable-gpu-shader-disk-cache").
+		Set("disable-features", "Crashpad").
+		Set("remote-debugging-port", "0").
+		Set("disk-cache-dir", cacheDir).
+		Set("user-data-dir", userDataDir).
 		Set("user-agent", cfg.UserAgent)
 
 	if cfg.ChromeBinPath != "" {

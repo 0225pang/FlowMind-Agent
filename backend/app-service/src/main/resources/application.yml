@@ -56,11 +56,14 @@ flowmind:
       working-dir: ${FLOWMIND_XHS_MCP_WORKING_DIR:ai-agent-service/integrations/xiaohongshu-mcp}
       port: ${FLOWMIND_XHS_MCP_PORT:18060}
       headless: ${FLOWMIND_XHS_MCP_HEADLESS:true}
+      browser-bin: ${FLOWMIND_XHS_MCP_BROWSER_BIN:}
+      chrome-user-data-dir: ${FLOWMIND_XHS_MCP_CHROME_USER_DATA_DIR:.runtime/xiaohongshu/chrome-profile}
+      cookies-path: ${FLOWMIND_XHS_MCP_COOKIES_PATH:.runtime/xiaohongshu/cookies.json}
       go-cache: ${FLOWMIND_XHS_MCP_GO_CACHE:.gocache/xiaohongshu-mcp}
       base-url: ${FLOWMIND_XHS_MCP_BASE_URL:http://localhost:18060}
       search-path: /api/v1/feeds/search
       detail-path: /api/v1/feeds/detail
-      timeout-seconds: 20
+      timeout-seconds: 120
       default-limit: 8
       mock-fallback: true
   feishu:
