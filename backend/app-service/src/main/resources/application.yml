@@ -1,5 +1,11 @@
 server:
   port: 8080
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+      force-response: true
 
 spring:
   application:
@@ -41,13 +47,19 @@ flowmind:
       timeout-seconds: 30
     xiaohongshu-mcp:
       # Adapter for https://github.com/xpzouying/xiaohongshu-mcp.
-      # Keep the real MCP disabled by default. The agent can still use mock
-      # hot-note structures for the Xiaohongshu SOP demo.
-      enabled: false
+      # The Go MCP runtime is stored under ai-agent-service/integrations and is
+      # started automatically with the backend when Go is available locally.
+      enabled: true
       agent-enabled: true
-      base-url: ${FLOWMIND_XHS_MCP_BASE_URL:}
-      search-path: /api/xiaohongshu/search
-      detail-path: /api/xiaohongshu/detail
+      auto-start: true
+      command: ${FLOWMIND_XHS_MCP_COMMAND:go}
+      working-dir: ${FLOWMIND_XHS_MCP_WORKING_DIR:ai-agent-service/integrations/xiaohongshu-mcp}
+      port: ${FLOWMIND_XHS_MCP_PORT:18060}
+      headless: ${FLOWMIND_XHS_MCP_HEADLESS:true}
+      go-cache: ${FLOWMIND_XHS_MCP_GO_CACHE:.gocache/xiaohongshu-mcp}
+      base-url: ${FLOWMIND_XHS_MCP_BASE_URL:http://localhost:18060}
+      search-path: /api/v1/feeds/search
+      detail-path: /api/v1/feeds/detail
       timeout-seconds: 20
       default-limit: 8
       mock-fallback: true

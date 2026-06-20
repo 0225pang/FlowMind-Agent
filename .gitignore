@@ -3,6 +3,7 @@
 # === Dependencies (本地仓库 / 私有仓库) ===
 node_modules/
 backend/.m2repo/
+.gocache/
 .venv/
 desktop_fronted/.venv/
 __pycache__/

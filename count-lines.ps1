@@ -43,7 +43,8 @@ $codeExt = @(
     ".gradle",
     ".properties",
     ".json",
-    ".py"
+    ".py",
+    ".go"
 )
 
 $docExt = @(".md")

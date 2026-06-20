@@ -77,12 +77,24 @@ public class XiaohongshuMcpClient {
             return Map.of("ok", false, "message", "xiaohongshu-mcp is not configured");
         }
         try {
-            String url = trimBase(baseUrl) + detailPath + "?id=" + URLEncoder.encode(value, StandardCharsets.UTF_8);
+            DetailKey detailKey = parseDetailKey(value);
+            if (detailKey.feedId().isBlank() || detailKey.xsecToken().isBlank()) {
+                return Map.of(
+                        "ok", false,
+                        "message", "Xiaohongshu detail requires feedId and xsecToken. Use the id returned by search, formatted as feedId|xsecToken."
+                );
+            }
+            String url = trimBase(baseUrl) + detailPath;
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("feed_id", detailKey.feedId());
+            body.put("xsec_token", detailKey.xsecToken());
+            body.put("load_all_comments", false);
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
                     .timeout(Duration.ofSeconds(Math.max(5, timeoutSeconds)))
                     .header("Accept", "application/json")
-                    .GET()
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body), StandardCharsets.UTF_8))
                     .build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
@@ -115,7 +127,7 @@ public class XiaohongshuMcpClient {
     }
 
     private List<HotNote> parseNotes(JsonNode root, int limit) {
-        JsonNode array = firstArray(root, "data", "items", "notes", "result", "list");
+        JsonNode array = firstArray(root, "data", "feeds", "items", "notes", "result", "list");
         if (array == null && root.isArray()) {
             array = root;
         }
@@ -126,15 +138,37 @@ public class XiaohongshuMcpClient {
         int count = 0;
         for (JsonNode item : array) {
             if (count >= limit) break;
-            notes.add(new HotNote(
-                    text(item, "id", "noteId", "note_id", "xsecToken"),
-                    text(item, "title", "displayTitle", "name"),
+            JsonNode noteCard = item.path("noteCard");
+            JsonNode interactInfo = noteCard.path("interactInfo");
+            String feedId = text(item, "id", "feedId", "feed_id", "noteId", "note_id");
+            String xsecToken = text(item, "xsecToken", "xsec_token");
+            String stableId = xsecToken.isBlank() ? feedId : feedId + "|" + xsecToken;
+            String title = firstNonBlank(
+                    pathText(item, "noteCard", "displayTitle"),
+                    pathText(item, "noteCard", "title"),
+                    text(item, "title", "displayTitle", "name")
+            );
+            String author = firstNonBlank(
+                    pathText(item, "noteCard", "user", "nickname"),
+                    pathText(item, "noteCard", "user", "nickName"),
+                    text(item, "author", "nickname", "userName")
+            );
+            String summary = firstNonBlank(
+                    pathText(item, "noteCard", "desc"),
+                    pathText(item, "noteCard", "content"),
                     text(item, "desc", "content", "noteDesc", "summary"),
-                    text(item, "author", "nickname", "userName"),
-                    text(item, "url", "link", "shareLink"),
-                    number(item, "likeCount", "likedCount", "likes"),
-                    number(item, "collectCount", "collectedCount", "collects"),
-                    number(item, "commentCount", "comments"),
+                    buildStructureHint(title, interactInfo)
+            );
+            notes.add(new HotNote(
+                    stableId,
+                    title,
+                    summary,
+                    author,
+                    firstNonBlank(text(item, "url", "link", "shareLink"), buildDetailUrl(feedId, xsecToken)),
+                    coverUrl(noteCard),
+                    firstNonZero(number(item, "likeCount", "likedCount", "likes"), number(interactInfo, "likedCount")),
+                    firstNonZero(number(item, "collectCount", "collectedCount", "collects"), number(interactInfo, "collectedCount")),
+                    firstNonZero(number(item, "commentCount", "comments"), number(interactInfo, "commentCount")),
                     tags(item)
             ));
             count++;
@@ -166,6 +200,29 @@ public class XiaohongshuMcpClient {
         return "";
     }
 
+    private String pathText(JsonNode item, String... path) {
+        JsonNode current = item;
+        for (String name : path) {
+            if (current == null || current.isMissingNode() || current.isNull()) return "";
+            current = current.path(name);
+        }
+        return current == null || current.isMissingNode() || current.isNull() ? "" : current.asText("").trim();
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) return value.trim();
+        }
+        return "";
+    }
+
+    private long firstNonZero(long... values) {
+        for (long value : values) {
+            if (value > 0) return value;
+        }
+        return 0;
+    }
+
     private long number(JsonNode item, String... names) {
         for (String name : names) {
             JsonNode value = item.get(name);
@@ -192,6 +249,60 @@ public class XiaohongshuMcpClient {
         return tags;
     }
 
+    private String coverUrl(JsonNode noteCard) {
+        String direct = pathText(noteCard, "cover", "urlDefault");
+        if (!direct.isBlank()) return direct;
+        direct = pathText(noteCard, "cover", "url");
+        if (!direct.isBlank()) return direct;
+        JsonNode infoList = noteCard.path("cover").path("infoList");
+        if (infoList.isArray() && !infoList.isEmpty()) {
+            return pathText(infoList.get(0), "url");
+        }
+        return "";
+    }
+
+    private String buildStructureHint(String title, JsonNode interactInfo) {
+        List<String> clues = new ArrayList<>();
+        if (title != null && title.matches(".*\\d+.*")) clues.add("数字型标题");
+        if (title != null && (title.contains("别") || title.contains("避坑") || title.contains("不要"))) clues.add("焦虑/避坑钩子");
+        if (title != null && (title.contains("清单") || title.contains("模板") || title.contains("步骤"))) clues.add("清单型结构");
+        long likes = number(interactInfo, "likedCount");
+        long collects = number(interactInfo, "collectedCount");
+        if (collects > 0 && likes > 0 && collects * 2 >= likes) clues.add("收藏导向强，适合模板/资料领取转化");
+        if (clues.isEmpty()) clues.add("根据标题、互动数据和封面进行爆款结构拆解");
+        return String.join("；", clues);
+    }
+
+    private DetailKey parseDetailKey(String value) {
+        String text = value == null ? "" : value.trim();
+        if (text.contains("|")) {
+            String[] parts = text.split("\\|", 2);
+            return new DetailKey(parts[0].trim(), parts.length > 1 ? parts[1].trim() : "");
+        }
+        if (text.contains(",")) {
+            String[] parts = text.split(",", 2);
+            return new DetailKey(parts[0].trim(), parts.length > 1 ? parts[1].trim() : "");
+        }
+        String feedId = queryValue(text, "feed_id", "feedId", "note_id", "noteId", "id");
+        String token = queryValue(text, "xsec_token", "xsecToken");
+        if (!feedId.isBlank() || !token.isBlank()) {
+            return new DetailKey(feedId, token);
+        }
+        return new DetailKey(text, "");
+    }
+
+    private String queryValue(String value, String... names) {
+        for (String name : names) {
+            String marker = name + "=";
+            int start = value.indexOf(marker);
+            if (start < 0) continue;
+            int from = start + marker.length();
+            int end = value.indexOf('&', from);
+            return (end < 0 ? value.substring(from) : value.substring(from, end)).trim();
+        }
+        return "";
+    }
+
     private String normalizeTopic(String topic) {
         String value = topic == null ? "" : topic.trim();
         return value.isEmpty() ? "保研经验" : trim(value, 80);
@@ -211,11 +322,11 @@ public class XiaohongshuMcpClient {
     public record SearchResult(String topic, List<HotNote> notes, String mode, String message) {
         static SearchResult mock(String topic, int limit, String message) {
             List<HotNote> notes = new ArrayList<>();
-            notes.add(new HotNote("mock-1", topic + "别再乱准备了", "痛点开头 + 结果承诺 + 3步方法，强调普通本科也能看懂的行动清单。", "保研学姐A", "", 18200, 4310, 680, List.of("保研", "干货", "经验")));
-            notes.add(new HotNote("mock-2", "低 GPA 也能补救的" + topic + "策略", "反差开头，用案例讲补强科研、推荐信、院校梯度和材料表达。", "规划师B", "", 9400, 2100, 312, List.of("低GPA", "逆袭", "申请")));
-            notes.add(new HotNote("mock-3", topic + "材料清单，一次讲明白", "清单型结构，按时间线拆材料，结尾引导评论领取模板。", "资料库C", "", 7600, 1880, 205, List.of("材料", "清单", "模板")));
-            notes.add(new HotNote("mock-4", "导师视角看" + topic + "，这些细节很加分", "导师视角 + 避坑总结，强调表达专业性和证据链。", "科研助教D", "", 6100, 1350, 166, List.of("导师", "避坑", "科研")));
-            notes.add(new HotNote("mock-5", topic + "从0到1复盘", "故事型结构，用前后对比制造可信度，适合情绪增强版。", "上岸案例E", "", 5200, 990, 128, List.of("复盘", "故事", "上岸")));
+            notes.add(new HotNote("mock-1", topic + "别再乱准备了", "痛点开头 + 结果承诺 + 3步方法，强调普通本科也能看懂的行动清单。", "保研学姐A", "", "", 18200, 4310, 680, List.of("保研", "干货", "经验")));
+            notes.add(new HotNote("mock-2", "低 GPA 也能补救的" + topic + "策略", "反差开头，用案例讲补强科研、推荐信、院校梯度和材料表达。", "规划师B", "", "", 9400, 2100, 312, List.of("低GPA", "逆袭", "申请")));
+            notes.add(new HotNote("mock-3", topic + "材料清单，一次讲明白", "清单型结构，按时间线拆材料，结尾引导评论领取模板。", "资料库C", "", "", 7600, 1880, 205, List.of("材料", "清单", "模板")));
+            notes.add(new HotNote("mock-4", "导师视角看" + topic + "，这些细节很加分", "导师视角 + 避坑总结，强调表达专业性和证据链。", "科研助教D", "", "", 6100, 1350, 166, List.of("导师", "避坑", "科研")));
+            notes.add(new HotNote("mock-5", topic + "从0到1复盘", "故事型结构，用前后对比制造可信度，适合情绪增强版。", "上岸案例E", "", "", 5200, 990, 128, List.of("复盘", "故事", "上岸")));
             return new SearchResult(topic, notes.stream().limit(limit).toList(), "mock", message);
         }
     }
@@ -225,6 +336,7 @@ public class XiaohongshuMcpClient {
                           String summary,
                           String author,
                           String url,
+                          String coverUrl,
                           long likeCount,
                           long collectCount,
                           long commentCount,
@@ -236,11 +348,28 @@ public class XiaohongshuMcpClient {
             map.put("summary", summary);
             map.put("author", author);
             map.put("url", url);
+            map.put("detailUrl", url);
+            map.put("coverUrl", coverUrl);
             map.put("likeCount", likeCount);
             map.put("collectCount", collectCount);
             map.put("commentCount", commentCount);
             map.put("tags", tags);
             return map;
         }
+    }
+
+    private record DetailKey(String feedId, String xsecToken) {
+    }
+
+    private String buildDetailUrl(String feedId, String xsecToken) {
+        if (feedId == null || feedId.isBlank()) return "";
+        StringBuilder builder = new StringBuilder("https://www.xiaohongshu.com/explore/")
+                .append(URLEncoder.encode(feedId, StandardCharsets.UTF_8));
+        if (xsecToken != null && !xsecToken.isBlank()) {
+            builder.append("?xsec_token=")
+                    .append(URLEncoder.encode(xsecToken, StandardCharsets.UTF_8))
+                    .append("&xsec_source=pc_feed");
+        }
+        return builder.toString();
     }
 }
