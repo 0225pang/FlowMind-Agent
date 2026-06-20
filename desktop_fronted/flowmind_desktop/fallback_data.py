@@ -337,8 +337,30 @@ FEISHU_STATUS = {
 }
 
 FEISHU_LOGS = [
-    {"id": 1, "syncType": "docs", "targetName": "保研知识库", "status": "success", "message": "同步 3 个文档", "createdAt": "2026-06-18 10:00:00"},
-    {"id": 2, "syncType": "bitable", "targetName": "内容素材库", "status": "waiting", "message": "等待飞书授权", "createdAt": "2026-06-18 10:05:00"},
+    {
+        "id": 1,
+        "syncType": "docs",
+        "targetName": "保研知识库",
+        "status": "SUCCESS",
+        "message": "同步 3 个文档",
+        "added": 0,
+        "updated": 3,
+        "skipped": 0,
+        "errors": 0,
+        "createdAt": "2026-06-18 10:00:00",
+    },
+    {
+        "id": 2,
+        "syncType": "bitable",
+        "targetName": "内容素材库",
+        "status": "WAITING",
+        "message": "等待飞书授权",
+        "added": 0,
+        "updated": 0,
+        "skipped": 0,
+        "errors": 0,
+        "createdAt": "2026-06-18 10:05:00",
+    },
 ]
 
 PROMPTS = [
@@ -353,19 +375,19 @@ ROUTES = [
     {"service": "feishu-service", "path": "/api/feishu/**"},
 ]
 
-ROLES = [
-    {"roleCode": "ADMIN", "roleName": "管理员"},
-    {"roleCode": "OPERATOR", "roleName": "运营人员"},
-    {"roleCode": "CONSULTANT", "roleName": "保研顾问"},
+PERMISSIONS = [
+    {"code": "dashboard:view", "permissionCode": "dashboard:view", "name": "查看 Dashboard", "permissionName": "查看 Dashboard", "pathPattern": "/api/analytics/**", "frontendRoute": "/dashboard"},
+    {"code": "agent:chat", "permissionCode": "agent:chat", "name": "使用 AI 工作台", "permissionName": "使用 AI 工作台", "pathPattern": "/api/agents/**", "frontendRoute": "/agent"},
+    {"code": "content:manage", "permissionCode": "content:manage", "name": "管理内容运营", "permissionName": "管理内容运营", "pathPattern": "/api/content/**", "frontendRoute": "/content"},
+    {"code": "knowledge:manage", "permissionCode": "knowledge:manage", "name": "管理知识库", "permissionName": "管理知识库", "pathPattern": "/api/knowledge/**", "frontendRoute": "/knowledge"},
+    {"code": "student:manage", "permissionCode": "student:manage", "name": "管理学员", "permissionName": "管理学员", "pathPattern": "/api/students/**", "frontendRoute": "/students"},
+    {"code": "school:manage", "permissionCode": "school:manage", "name": "管理院校", "permissionName": "管理院校", "pathPattern": "/api/schools/**", "frontendRoute": "/schools"},
 ]
 
-PERMISSIONS = [
-    {"code": "dashboard:view", "name": "查看 Dashboard"},
-    {"code": "agent:chat", "name": "使用 AI 工作台"},
-    {"code": "content:manage", "name": "管理内容运营"},
-    {"code": "knowledge:manage", "name": "管理知识库"},
-    {"code": "student:manage", "name": "管理学员"},
-    {"code": "school:manage", "name": "管理院校"},
+ROLES = [
+    {"roleCode": "ADMIN", "roleName": "管理员", "permissions": deepcopy(PERMISSIONS)},
+    {"roleCode": "OPERATOR", "roleName": "运营人员", "permissions": deepcopy(PERMISSIONS[:4])},
+    {"roleCode": "CONSULTANT", "roleName": "保研顾问", "permissions": deepcopy(PERMISSIONS[:2] + PERMISSIONS[4:])},
 ]
 
 
@@ -386,4 +408,3 @@ def filter_contains(rows: list[dict[str, Any]], keyword: str) -> list[dict[str, 
 
 def next_id(rows: list[dict[str, Any]]) -> int:
     return max([int(row.get("id") or 0) for row in rows] or [0]) + 1
-
