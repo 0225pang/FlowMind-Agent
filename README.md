@@ -1,548 +1,360 @@
-# FlowMind Agent 扩展开发指南
+# FlowMind Agent
 
-这份文档专门说明：后续如果要给 FlowMind Agent 添加新的智能体能力，应该改哪些文件、怎么接后端路由、怎么接真实工具、怎么让前端知道。
+FlowMind Agent 是一个面向保研咨询、内容运营和知识管理场景的智能体平台。项目以“总智能体入口”为核心，用户在 AI 工作台输入自然语言后，系统会优先检索知识库和向量数据库，再根据意图自动调用内容创作、飞书同步、院校情报、学员管理、小红书 SOP Skill 等能力。
 
-当前项目采用“总智能体入口 + 自动路由 + 专业 Agent + 白名单工具”的方式：
+当前仓库包含 Web 前端、Spring Boot 后端、Android 移动端、Python 桌面端以及若干 MCP / Skill 适配能力。后端统一提供 REST 与 SSE 流式接口，客户端不直接连接 MySQL、Weaviate、飞书 CLI 或大模型 API。
 
-```text
-前端 AI 工作台
-  -> POST /api/agents/chat/stream
-  -> AgentRouter 自动判断意图
-  -> ContentAgent / KnowledgeAgent / StudentAgent / SchoolAgent / FeishuAgent
-  -> 可选：调用 LarkCliToolService / LLMClient / 数据库 Service
-```
+![系统总体架构](docs/readme-assets/image1.png)
 
-核心原则：
+## 主要功能
 
-- 前端默认只发给 `agentType: auto`，不要再要求用户手动选择 Agent。
-- `AgentRouter` 负责判断应该启用哪个 Agent。
-- Agent 负责业务理解、组织 Prompt、决定是否调用工具。
-- 真实外部操作必须走后端白名单工具，不要让大模型直接执行 shell 命令。
-- 飞书、数据库、向量库、MCP、Skill 都应该包装成明确的 Service 或 Extension。
-
----
+- AI 工作台：统一对话入口，支持 SSE 流式回复、工具调用过程展示、模型 thinking / reasoning 展示、历史会话保存。
+- 知识库：同步飞书共享文件夹文档，保存到 MySQL，并构建 Weaviate 向量索引；智能体回答前会优先检索知识库。
+- 内容运营：管理选题、文案、日历、评分、配图建议，支持小红书/朋友圈/公众号等内容 SOP。
+- 飞书能力：通过 `lark-cli` 读取共享文件夹、创建文档、获取文档内容，并可作为智能体工具调用。
+- 小红书 SOP Skill：集成小红书 MCP 适配层，用于内容运营链路中的热点搜索、笔记结构分析和仿写生成。高风险发布/点赞/评论能力默认不暴露给智能体。
+- 院校情报与学员管理：维护院校项目、学生画像、申请阶段、风险等级和推荐结果。
+- 权限控制：内置五类角色，支持后端 RBAC 校验与前端菜单防呆展示。
+- 多端复用：Web、Android App、Python 桌面端复用同一套后端 API。
 
-## 一、最常改的文件
+## 运行截图
 
-### 后端 Agent 核心
+### Web 端
 
-```text
-backend/ai-agent-service/src/main/java/com/flowmind/agent/core/Agent.java
-backend/ai-agent-service/src/main/java/com/flowmind/agent/core/BaseAgent.java
-backend/ai-agent-service/src/main/java/com/flowmind/agent/core/ContentAgent.java
-backend/ai-agent-service/src/main/java/com/flowmind/agent/core/KnowledgeAgent.java
-backend/ai-agent-service/src/main/java/com/flowmind/agent/core/StudentAgent.java
-backend/ai-agent-service/src/main/java/com/flowmind/agent/core/SchoolAgent.java
-backend/ai-agent-service/src/main/java/com/flowmind/agent/core/FeishuAgent.java
-backend/ai-agent-service/src/main/java/com/flowmind/agent/service/AgentRouter.java
-```
+![登录页](docs/readme-assets/image9.png)
 
-### 后端工具和扩展
+![AI 工作台](docs/readme-assets/image11.png)
 
-```text
-backend/ai-agent-service/src/main/java/com/flowmind/agent/service/LarkCliToolService.java
-backend/ai-agent-service/src/main/java/com/flowmind/agent/extension/AgentExtension.java
-backend/ai-agent-service/src/main/java/com/flowmind/agent/extension/McpToolProvider.java
-backend/ai-agent-service/src/main/java/com/flowmind/agent/extension/SkillProvider.java
-backend/ai-agent-service/src/main/java/com/flowmind/agent/extension/LarkCliMcpExtension.java
-backend/ai-agent-service/src/main/java/com/flowmind/agent/extension/RuntimeToolExtensions.java
-```
+![知识库](docs/readme-assets/image12.png)
 
-### 后端配置
+![内容运营](docs/readme-assets/image13.png)
 
-```text
-backend/app-service/src/main/resources/application.yml
-backend/app-service/src/main/resources/application-deepseek.yml
-```
+### 移动端
 
-### 前端 AI 工作台
+![移动端 AI 工作台](docs/readme-assets/image23.jpeg)
 
-```text
-frontend/src/views/AgentWorkspaceView.vue
-frontend/src/components/AgentChat.vue
-frontend/src/components/AgentTabs.vue
-frontend/src/components/ContextPanel.vue
-frontend/src/api/agent.ts
-frontend/src/utils/markdown.ts
-```
+![移动端知识库](docs/readme-assets/image24.jpeg)
 
----
+## 启动前准备
 
-## 二、新增一个“纯 LLM 智能体”
+### 1. 基础环境
 
-适合：只需要大模型生成内容，不需要真实调用飞书、数据库、外部 API。
+建议准备以下环境：
 
-例子：新增 `ResearchAgent`，负责科研选题分析。
+- JDK 17
+- Maven Wrapper，项目已包含 `backend/mvnw.cmd`
+- Node.js 18
+- MySQL 8/9
+- Docker，可用于启动 MySQL、Weaviate 等依赖
+- Go 1.24，仅当需要真实启动小红书 MCP 时需要
+- Android SDK，仅当需要构建 Android APK 时需要
+- Python 3.10，仅当需要运行桌面端时需要
 
-### 1. 新建 Agent 类
+### 2. 大模型与 Embedding API
 
-目录：
-
-```text
-backend/ai-agent-service/src/main/java/com/flowmind/agent/core/ResearchAgent.java
-```
-
-参考写法：
-
-```java
-package com.flowmind.agent.core;
-
-import com.flowmind.agent.dto.AgentRequest;
-import com.flowmind.agent.dto.AgentResponse;
-import com.flowmind.agent.extension.AgentExtension;
-import com.flowmind.agent.llm.LLMClient;
-import org.springframework.stereotype.Component;
-
-import java.util.List;
-import java.util.Map;
-
-@Component
-public class ResearchAgent extends BaseAgent {
-    public ResearchAgent(LLMClient llm, List<AgentExtension> extensions) {
-        super(llm, extensions);
-    }
-
-    @Override
-    public String getName() {
-        return "ResearchAgent";
-    }
-
-    @Override
-    public String getDescription() {
-        return "科研选题、论文结构、文献综述和研究计划智能体。";
-    }
-
-    @Override
-    public AgentResponse execute(AgentRequest request) {
-        return response("research", request.getMessage(), List.of(
-                Map.of("title", "研究计划", "content", "可生成研究问题、方法路线和论文结构")
-        ));
-    }
-}
-```
-
-只要加了 `@Component`，Spring 会自动注册，`AgentRouter` 的 `agents` 列表会自动拿到它。
-
-### 2. 修改自动路由
-
-文件：
-
-```text
-backend/ai-agent-service/src/main/java/com/flowmind/agent/service/AgentRouter.java
-```
-
-在 `inferAgentType()` 里加关键词：
-
-```java
-if (containsAny(text, "科研", "论文", "文献综述", "研究计划", "课题")) {
-    return "research";
-}
-```
-
-注意：返回值必须等于 Agent 名去掉 `Agent` 后的小写形式。
-
-```text
-ResearchAgent -> research
-FeishuAgent   -> feishu
-ContentAgent  -> content
-```
-
-### 3. 前端是否需要改？
-
-如果只是让总智能体自动调用，不一定要改前端。
-
-如果要在右侧面板展示能力说明，改：
-
-```text
-frontend/src/components/ContextPanel.vue
-frontend/src/components/AgentTabs.vue
-```
-
----
-
-## 三、新增一个“真实工具能力”
-
-适合：需要真的调用外部系统或本机能力，比如飞书、网页搜索、文件读取、向量数据库、数据库写入。
-
-不要让 LLM 直接输出：
-
-```json
-{"action":"CREATE_DOC"}
-```
-
-然后假装成功。正确做法是：
-
-```text
-用户请求
-  -> Agent 判断意图
-  -> 调用后端 Tool Service
-  -> Tool Service 执行真实操作
-  -> Agent 把真实返回结果展示给用户
-```
-
-### 1. 新建 Tool Service
-
-例子：新增一个 `VectorSearchToolService`。
-
-目录：
-
-```text
-backend/ai-agent-service/src/main/java/com/flowmind/agent/service/VectorSearchToolService.java
-```
-
-建议结构：
-
-```java
-@Service
-public class VectorSearchToolService {
-    public List<SearchResult> search(String query, int topK) {
-        // 未来可以接 Milvus / Qdrant / pgvector / Elasticsearch
-        return List.of();
-    }
-}
-```
-
-### 2. 在 Agent 中注入工具
-
-例子：给 `KnowledgeAgent` 注入。
-
-```java
-private final VectorSearchToolService vectorSearchToolService;
-
-public KnowledgeAgent(
-        LLMClient llm,
-        List<AgentExtension> extensions,
-        VectorSearchToolService vectorSearchToolService
-) {
-    super(llm, extensions);
-    this.vectorSearchToolService = vectorSearchToolService;
-}
-```
-
-然后在 `execute()` 或 `stream()` 里判断：
-
-```java
-if (message.contains("检索") || message.contains("知识库")) {
-    var results = vectorSearchToolService.search(message, 5);
-    // 把真实结果组织成 AgentResponse
-}
-```
-
-### 3. 注册工具上下文
-
-如果你希望 LLM 知道这个工具存在，新增一个 Extension：
-
-```text
-backend/ai-agent-service/src/main/java/com/flowmind/agent/extension/VectorSearchMcpExtension.java
-```
-
-实现：
-
-```java
-@Component
-public class VectorSearchMcpExtension implements McpToolProvider {
-    public String name() { return "vector-search"; }
-    public String description() { return "知识库向量检索工具，支持相似内容召回。"; }
-    public boolean supports(String agentType) {
-        return "knowledge".equals(agentType) || "content".equals(agentType);
-    }
-}
-```
-
-`BaseAgent` 会自动把 Extension 注入系统提示词。
-
----
-
-## 四、新增飞书能力
-
-当前飞书相关能力已经有基础结构：
-
-```text
-backend/ai-agent-service/src/main/java/com/flowmind/agent/service/LarkCliToolService.java
-backend/ai-agent-service/src/main/java/com/flowmind/agent/core/FeishuAgent.java
-backend/ai-agent-service/src/main/java/com/flowmind/agent/extension/LarkCliMcpExtension.java
-backend/feishu-service/src/main/java/com/flowmind/feishu/FeishuController.java
-backend/app-service/src/main/resources/application.yml
-```
-
-当前已经支持：
-
-- 创建飞书文档
-- 获取飞书文档
-- 读取“保研知识库”共享文件夹直接子项
-- 在“保研知识库”下创建文档
-
-### 1. 飞书固定资源配置
-
-放在：
-
-```text
-backend/app-service/src/main/resources/application.yml
-```
-
-例子：
+后端默认按 OpenAI-compatible 方式调用 DeepSeek：
 
 ```yaml
 flowmind:
-  feishu:
-    knowledge-base:
-      name: 保研知识库
-      folder-token: KELsfW0jvlHcVqdiuTncQ66Lnnc
-      url: https://ycn1ft0idflw.feishu.cn/drive/folder/KELsfW0jvlHcVqdiuTncQ66Lnnc
+
+ llm:
+ provider: deepseek
+ base-url: https://api.deepseek.com
+ chat-path: /chat/completions
+ model: deepseek-v4-flash
+ api-key: ${FLOWMIND_LLM_API_KEY:}
 ```
 
-如果以后你有新的共享文件夹，比如“内容素材库”，可以加：
+不要把 API Key 直接提交到 Git。推荐复制本地配置模板：
+
+``powershell cd "H:\Babycode\FlowMind Agent\flowmind-agent\backend" Copy-Item .\app-service\src\main\resources\application-local.template.yml .\app-service\src\main\resources\application-local.yml ``
+
+然后在 `application-local.yml` 中填写：
 
 ```yaml
 flowmind:
-  feishu:
-    content-base:
-      name: 内容素材库
-      folder-token: xxxxx
-      url: https://xxx.feishu.cn/drive/folder/xxxxx
+
+ llm:
+ api-key: your_deepseek_api_key
+ embedding:
+ api-key: your_embedding_api_key
 ```
 
-然后在对应 Agent 中用 `@Value` 注入。
+`application-local.yml` 已在 `.gitignore` 中，不会被提交。若没有配置 `FLOWMIND_LLM_API_KEY` 或本地 API Key，系统会回退到 `MockLLMClient`，此时回答会比较固定。
 
-### 2. 新增一个飞书白名单命令
+### 3. MySQL
 
-修改：
+默认连接：
 
-```text
-backend/ai-agent-service/src/main/java/com/flowmind/agent/service/LarkCliToolService.java
+``text jdbc:mysql://localhost:3306/FlowMind username: root password: 123456 ``
+
+如果已有容器：
+
+``powershell docker start mysql9 ``
+
+如果没有容器，可参考：
+
+``powershell docker run -d --name mysql9 -p 3306:3306 -v H:\Docker\mysql:/var/lib/mysql -e MYSQL_ROOT_PASSWORD=123456 mysql:9.7.0 ``
+
+后端启动时会自动初始化用户、角色、权限以及部分业务表。测试账号：
+
+``text admin   / 123456  团队管理员 content / 123456  内容运营人员 teacher / 123456  教育咨询老师 ip      / 123456  个人 IP 运营者 student / 123456  学员用户 ``
+
+### 4. Weaviate 向量数据库
+
+默认配置：
+
+```yaml
+flowmind:
+
+ weaviate:
+ enabled: true
+ base-url: http://localhost:18080
 ```
 
-例如新增移动文件：
+如果 Weaviate 可用，知识库会优先走向量检索；如果不可用，当前实现会尽量回退到 MySQL 检索，保证智能体仍能回答基础问题。
 
-```java
-public JsonNode moveFile(String fileToken, String targetFolderToken, String asIdentity) throws Exception {
-    List<String> args = baseArgs();
-    args.add("drive");
-    args.add("+move");
-    // 按 lark-cli help 要求补参数
-    return execute(null, args, null);
-}
+### 5. 飞书 CLI
+
+真实飞书能力依赖本机 `lark-cli`：
+
+``powershell lark-cli --version ``
+
+飞书授权、共享文件夹、文档创建等说明见：
+
+``text backend/README.md docs/README-team-capability-extension.md ``
+
+### 6. 小红书 MCP
+
+小红书 MCP 位于：
+
+``text backend/ai-agent-service/integrations/xiaohongshu-mcp ``
+
+后端启动时会根据配置尝试自动启动：
+
+```yaml
+flowmind:
+
+ tools:
+ xiaohongshu-mcp:
+ enabled: true
+ agent-enabled: true
+ auto-start: true
+ port: 18060
+ mock-fallback: true
 ```
 
 注意：
 
-- 先用 `lark-cli <command> --help` 看参数。
-- 高风险写操作必须做白名单，不要拼接用户任意命令。
-- PowerShell 下复杂 JSON 参数优先用 stdin，也就是 `--params -`。
+- 需要 Go 1.24。
+- 需要可用的 Chrome / Chromium 环境。
+- Windows 下若遇到 Chrome `Crashpad`、`leakless.exe`、权限拒绝等问题，小红书能力会回退到 mock 热点结构，不影响后端主体启动。
+- 小红书登录与排错详见 [README-xiaohongshu-mcp-adapter.md](docs/README-xiaohongshu-mcp-adapter.md)。
 
-当前 `listFolder()` 就是这样做的。
+## 快速启动
 
-### 3. 在 FeishuAgent 中调用
+### 1. 启动后端
 
-修改：
+``powershell cd "H:\Babycode\FlowMind Agent\flowmind-agent\backend" .\mvnw.cmd -s maven-settings.xml -pl app-service -am spring-boot:run ``
 
-```text
-backend/ai-agent-service/src/main/java/com/flowmind/agent/core/FeishuAgent.java
-```
+后端默认地址：
 
-添加意图判断：
+``text http://localhost:8080 ``
 
-```java
-if (isMoveFileRequest(message)) {
-    return moveFileResponse(...);
-}
-```
+Swagger：
 
-建议顺序：
+``text http://localhost:8080/swagger-ui.html ``
 
-```text
-创建 / 写入类意图
-读取 / 列表类意图
-搜索类意图
-普通 LLM 回答
-```
+如果 8080 被占用：
 
-之前的问题就是“读取文件夹”优先级高于“创建文档”，导致“在保研知识库中创建文档”被误判成“列目录”。以后新增能力时，要特别注意这种优先级。
+``powershell .\mvnw.cmd -s maven-settings.xml -pl app-service -am spring-boot:run "-Dspring-boot.run.arguments=--server.port=18080" ``
 
-### 4. 如果缺飞书权限怎么办？
+### 2. 启动 Web 前端
 
-先运行对应命令，CLI 会返回 missing scope，例如：
+``powershell cd "H:\Babycode\FlowMind Agent\flowmind-agent\frontend" npm install npm run dev ``
 
-```text
-missing_scopes: ["space:document:retrieve"]
-```
+前端默认通过 Vite 代理访问后端。如果使用内网穿透域名，需要在 `frontend/vite.config.ts` 中配置 `server.allowedHosts`。
 
-然后发起授权：
+### 3. 启动桌面端
 
-```powershell
-$env:LARK_CLI_NO_PROXY='1'
-lark-cli auth login --scope "space:document:retrieve" --no-wait --json
-```
+``powershell cd "H:\Babycode\FlowMind Agent\flowmind-agent\desktop_fronted" .\start_desktop.ps1 ``
 
-拿到 `verification_url` 后生成二维码：
+桌面端通过 HTTP/SSE 复用后端接口，不直接读取数据库或配置文件。
 
-```powershell
-lark-cli auth qrcode "<verification_url>" --output flowmind_lark_auth_qr.png
-```
+### 4. 构建 Android App
 
-用户授权完成后执行：
+``powershell cd "H:\Babycode\FlowMind Agent\flowmind-agent\app" $env:ANDROID_HOME='C:\Users\Lenovo\AppData\Local\Android\Sdk' .\gradlew.bat assembleDebug ``
 
-```powershell
-lark-cli auth login --device-code "<device_code>"
-```
+APK 输出位置通常为：
 
-如果保存 token 时报 Windows `Access is denied`，用管理员权限或提升权限执行同一条 `--device-code` 命令。
+``text app/mobile/build/outputs/apk/debug/mobile-debug.apk ``
 
----
+移动端默认也走后端 HTTP/SSE 接口，可在 App 设置页修改后端地址。
 
-## 五、让总智能体知道新能力
-
-总智能体的核心是：
+## 代码结构
 
 ```text
-backend/ai-agent-service/src/main/java/com/flowmind/agent/service/AgentRouter.java
+flowmind-agent/
+
+ backend/                 Spring Boot 多模块后端
+ app-service/           聚合启动入口，启动整个 Demo 后端
+ ai-agent-service/      总智能体、Agent Router、LLM 客户端、MCP/Skill 扩展
+ knowledge-service/     知识库、飞书同步、Weaviate 向量检索
+ content-service/       内容选题、文案、日历、SOP
+ user-service/          登录、用户、角色、权限
+ student-service/       学员画像和申请进度
+ school-service/        院校情报和项目推荐
+ feishu-service/        飞书同步和文档能力
+ common-core/           通用响应、ID 等基础工具
+ common-security/       Token 与 RBAC 权限拦截
+ common-web/            Web 通用配置
+ sql/                   数据库建表和 mock 数据
+ frontend/                Vue 3  Vite  Element Plus Web 前端
+ app/                     原生 Android 移动端
+ desktop_fronted/         Python 桌面端
+ docs/                    需求、设计、接口、扩展说明文档
+ scripts/                 辅助脚本
+ third_party/             第三方源码暂存区
+ count-lines.ps1          代码行数统计脚本
 ```
 
-新增能力时一定要改 `inferAgentType()`。
+后端模块关系可以参考：
 
-示例：
+![包图](docs/readme-assets/image3.png)
 
-```java
-if (containsAny(text, "合同", "法务", "协议", "条款")) {
-    return "legal";
-}
-```
+数据库核心模型可以参考：
 
-同时新建：
+![数据库模型](docs/readme-assets/image4.png)
 
-```text
-backend/ai-agent-service/src/main/java/com/flowmind/agent/core/LegalAgent.java
-```
+## 关键配置位置
 
-规则：
+``text backend/app-service/src/main/resources/application.yml backend/app-service/src/main/resources/application-local.yml backend/app-service/src/main/resources/application-local.template.yml frontend/vite.config.ts app/mobile/build.gradle desktop_fronted/README.md ``
 
-- 路由关键词要尽量具体。
-- 外部系统操作要优先路由到工具型 Agent。
-- 关键词冲突时，写操作优先级高于读取操作。
-- 飞书相关请求优先路由到 `feishu`。
-- 无法判断时默认 `content`。
+建议：
 
----
+- 通用默认配置放 `application.yml`。
+- 私有 API Key、个人本地端口、临时凭证放 `application-local.yml`。
+- 不要提交 `.runtime/`、`.gocache/`、`application-local.yml`、`application-secret.yml`。
 
-## 六、前端怎么配合
+## 详细文档在哪里
 
-现在前端是统一入口：
+- 后端启动与常见问题：[backend/README.md](backend/README.md)
+- Web 前端说明：[frontend/README.md](frontend/README.md)
+- Android App 说明：[app/README.md](app/README.md)
+- 桌面端说明：[desktop_fronted/README.md](desktop_fronted/README.md)
+- 桌面/移动端可复用 API：[docs/API-for-desktop-client.md](docs/API-for-desktop-client.md)
+- 团队成员扩展能力说明：[docs/README-team-capability-extension.md](docs/README-team-capability-extension.md)
+- 向量检索扩展示例：[docs/README-vector-search-extension.md](docs/README-vector-search-extension.md)
+- 小红书 MCP 适配说明：[docs/README-xiaohongshu-mcp-adapter.md](docs/README-xiaohongshu-mcp-adapter.md)
+- 架构设计补充：[docs/architecture.md](docs/architecture.md)
+- 数据库设计：[docs/database-design.md](docs/database-design.md)
+- 内容 SOP：[docs/content-sop.md](docs/content-sop.md)
+- 系统需求/设计文档提交版：[docs/submission/](docs/submission/)
 
-```text
-frontend/src/views/AgentWorkspaceView.vue
-frontend/src/components/AgentChat.vue
-frontend/src/api/agent.ts
-```
+## 常见问题
 
-发送请求时：
+### 为什么回答像固定模板？
 
-```ts
-agentType: 'auto'
-```
+通常是没有配置真实大模型 API Key，系统回退到了 `MockLLMClient`。请检查 `application-local.yml` 或环境变量 `FLOWMIND_LLM_API_KEY`。
 
-所以新增后端 Agent 后，前端通常不用改。
+### 为什么 Maven 提示找不到 main class？
 
-需要改前端的情况：
+不要在后端父工程直接运行普通 `spring-boot:run`。请使用：
 
-### 1. 想在顶部展示新 Agent
+``powershell .\mvnw.cmd -s maven-settings.xml -pl app-service -am spring-boot:run ``
 
-改：
+### 为什么前端代理报 `ECONNREFUSED`？
 
-```text
-frontend/src/components/AgentTabs.vue
-```
+一般是后端没有启动，或后端端口不是 `8080`。先访问：
 
-增加一个 chip：
+``text http://localhost:8080/swagger-ui.html ``
 
-```ts
-{ type: 'research', name: 'ResearchAgent', color: '#0ea5e9' }
-```
+确认后端可用。
 
-### 2. 想在右侧面板展示新能力
+### 为什么小红书结果是 mock？
 
-改：
+真实小红书 MCP 启动失败、未登录、Chrome 环境不可用、接口超时都会触发 `mock-fallback`。这不会影响主系统运行，但返回的只是演示用热点结构，不是真实帖子。
 
-```text
-frontend/src/components/ContextPanel.vue
-```
+### 为什么飞书创建/读取失败？
 
-增加 route：
+检查：
 
-```ts
-{ name: 'ResearchAgent', desc: '科研选题、论文结构、文献综述', color: '#0ea5e9' }
-```
+``powershell lark-cli --version lark-cli auth status ``
 
-增加快捷动作：
+如果缺少 scope，需要按 CLI 返回的 `missing_scopes` 重新授权。
 
-```ts
-{ text: '生成研究计划', prompt: '帮我生成一个关于保研辅导平台的研究计划' }
-```
+## 开发建议
 
-### 3. 想让回复支持新格式
+团队成员新增能力时，优先把能力写成解耦的扩展文件或服务文件，不要直接改散落在多个 Agent 中的核心逻辑。推荐阅读：
 
-改：
+``text docs/README-team-capability-extension.md backend/app-service/src/main/java/com/flowmind/contrib/capability/README.md ``
 
-```text
-frontend/src/components/ChatMessage.vue
-frontend/src/utils/markdown.ts
-```
+当前项目的推荐扩展方式是：
 
-当前已经支持基础 Markdown 渲染。如果未来要支持工具卡片、飞书文档卡片、表格预览，可以在 `ChatMessage.vue` 根据 `cards` 渲染。
+``text 新增能力文件 -> 注册为 Spring Bean -> 由总智能体/扩展注册表发现 -> 前端继续调用统一 AI 工作台 ``
 
----
+这样即使某个成员写的 Skill 或 MCP 暂时没有被主流程使用，也能保持低耦合、可测试、可逐步接入。
+diff --git a/H:\Babycode\FlowMind Agent\flowmind-agent\README.md b/H:\Babycode\FlowMind Agent\flowmind-agent\README.md
+new file mode 100644
+--- /dev/null
+ b/H:\Babycode\FlowMind Agent\flowmind-agent\README.md
+@@ -0,0 1,356 @@
 
-## 七、数据库能力怎么加
+# FlowMind Agent
 
-如果新增一个业务模块，比如“任务 Agent”，推荐新增一个独立 service module：
+FlowMind Agent 是一个面向保研咨询、内容运营和知识管理场景的智能体平台。项目以“总智能体入口”为核心，用户在 AI 工作台输入自然语言后，系统会优先检索知识库和向量数据库，再根据意图自动调用内容创作、飞书同步、院校情报、学员管理、小红书 SOP Skill 等能力。
 
-```text
-backend/task-service/
-```
+当前仓库包含 Web 前端、Spring Boot 后端、Android 移动端、Python 桌面端以及若干 MCP / Skill 适配能力。后端统一提供 REST 与 SSE 流式接口，客户端不直接连接 MySQL、Weaviate、飞书 CLI 或大模型 API。
 
-典型结构：
+![系统总体架构](docs/readme-assets/image1.png)
 
-```text
-task-service/src/main/java/com/flowmind/task/controller/
-task-service/src/main/java/com/flowmind/task/service/
-task-service/src/main/java/com/flowmind/task/entity/
-task-service/src/main/java/com/flowmind/task/dto/
-task-service/src/main/java/com/flowmind/task/mapper/
-```
+## 主要功能
 
-然后：
+- AI 工作台：统一对话入口，支持 SSE 流式回复、工具调用过程展示、模型 thinking / reasoning 展示、历史会话保存。
+- 知识库：同步飞书共享文件夹文档，保存到 MySQL，并构建 Weaviate 向量索引；智能体回答前会优先检索知识库。
+- 内容运营：管理选题、文案、日历、评分、配图建议，支持小红书/朋友圈/公众号等内容 SOP。
+- 飞书能力：通过 `lark-cli` 读取共享文件夹、创建文档、获取文档内容，并可作为智能体工具调用。
+- 小红书 SOP Skill：集成小红书 MCP 适配层，用于内容运营链路中的热点搜索、笔记结构分析和仿写生成。高风险发布/点赞/评论能力默认不暴露给智能体。
+- 院校情报与学员管理：维护院校项目、学生画像、申请阶段、风险等级和推荐结果。
+- 权限控制：内置五类角色，支持后端 RBAC 校验与前端菜单防呆展示。
+- 多端复用：Web、Android App、Python 桌面端复用同一套后端 API。
 
-1. 在 `backend/pom.xml` 加 module。
-2. 在 `app-service/pom.xml` 引入依赖。
-3. 在 `schema.sql` 加表。
-4. 在 `mock-data.sql` 加 Demo 数据。
-5. Agent 调用对应 Service，而不是直接写 SQL。
+## 运行截图
 
-已有内容运营模块可以参考：
+### Web 端
 
-```text
-backend/content-service/
-```
+![登录页](docs/readme-assets/image9.png)
 
----
+![AI 工作台](docs/readme-assets/image11.png)
 
-## 八、接入新的大模型
+![知识库](docs/readme-assets/image12.png)
 
-当前 LLM 是 OpenAI-compatible 风格：
+![内容运营](docs/readme-assets/image13.png)
 
-```text
-backend/ai-agent-service/src/main/java/com/flowmind/agent/llm/LLMClient.java
-backend/ai-agent-service/src/main/java/com/flowmind/agent/llm/OpenAiCompatibleLLMClient.java
-backend/ai-agent-service/src/main/java/com/flowmind/agent/llm/MockLLMClient.java
-backend/ai-agent-service/src/main/java/com/flowmind/agent/llm/LlmProperties.java
-```
+### 移动端
 
-配置：
+![移动端 AI 工作台](docs/readme-assets/image23.jpeg)
 
-```text
-backend/app-service/src/main/resources/application-deepseek.yml
-```
+![移动端知识库](docs/readme-assets/image24.jpeg)
 
-如果换 OpenAI、通义、豆包兼容网关，只要改：
+## 启动前准备
+
+### 1. 基础环境
+
+建议准备以下环境：
+
+- JDK 17
+- Maven Wrapper，项目已包含 `backend/mvnw.cmd`
+- Node.js 18
+- MySQL 8/9
+- Docker，可用于启动 MySQL、Weaviate 等依赖
+- Go 1.24，仅当需要真实启动小红书 MCP 时需要
+- Android SDK，仅当需要构建 Android APK 时需要
+- Python 3.10，仅当需要运行桌面端时需要
+
+### 2. 大模型与 Embedding API
+
+后端默认按 OpenAI-compatible 方式调用 DeepSeek：
 
 ```yaml
 flowmind:
@@ -550,186 +362,297 @@ flowmind:
     provider: deepseek
     base-url: https://api.deepseek.com
     chat-path: /chat/completions
-    model: deepseek-chat
-    api-key: YOUR_TOKEN
+    model: deepseek-v4-flash
+    api-key: ${FLOWMIND_LLM_API_KEY:}
 ```
 
-如果厂商不是 OpenAI-compatible，再新增一个实现：
+不要把 API Key 直接提交到 Git。推荐复制本地配置模板：
 
-```java
-public class DoubaoLLMClient implements LLMClient {
-    public String complete(String systemPrompt, String userPrompt) {}
-    public void stream(String systemPrompt, String userPrompt, Consumer<String> onDelta) {}
-}
+```powershell
+cd "H:\Babycode\FlowMind Agent\flowmind-agent\backend"
+Copy-Item .\app-service\src\main\resources\application-local.template.yml .\app-service\src\main\resources\application-local.yml
 ```
 
----
+然后在 `application-local.yml` 中填写：
 
-## 九、推荐的扩展步骤清单
+```yaml
+flowmind:
+  llm:
+    api-key: your_deepseek_api_key
+  embedding:
+    api-key: your_embedding_api_key
+```
 
-新增能力时按这个顺序做：
+`application-local.yml` 已在 `.gitignore` 中，不会被提交。若没有配置 `FLOWMIND_LLM_API_KEY` 或本地 API Key，系统会回退到 `MockLLMClient`，此时回答会比较固定。
+
+### 3. MySQL
+
+默认连接：
 
 ```text
-1. 明确能力类型
-   - 纯 LLM 生成？
-   - 需要数据库？
-   - 需要飞书？
-   - 需要互联网？
-   - 需要向量检索？
-
-2. 新建或修改 Agent
-   - core/xxxAgent.java
-
-3. 如果需要真实操作，新建 Tool Service
-   - service/xxxToolService.java
-
-4. 如果需要让 LLM 知道工具存在，新建 Extension
-   - extension/xxxMcpExtension.java
-   - extension/xxxSkillExtension.java
-
-5. 修改总路由
-   - service/AgentRouter.java
-
-6. 加配置
-   - app-service/src/main/resources/application.yml
-
-7. 如有 REST 测试入口，加 Controller
-   - feishu-service / content-service / new-service
-
-8. 前端如需展示，改
-   - AgentTabs.vue
-   - ContextPanel.vue
-   - AgentChat.vue
-
-9. 编译验证
-   - 后端：.\mvnw.cmd -s maven-settings.xml -q -DskipTests package
-   - 前端：npm run build
+jdbc:mysql://localhost:3306/FlowMind
+username: root
+password: 123456
 ```
 
----
+如果已有容器：
 
-## 十、运行命令
+```powershell
+docker start mysql9
+```
 
-后端：
+如果没有容器，可参考：
+
+```powershell
+docker run -d --name mysql9 -p 3306:3306 -v H:\Docker\mysql:/var/lib/mysql -e MYSQL_ROOT_PASSWORD=123456 mysql:9.7.0
+```
+
+后端启动时会自动初始化用户、角色、权限以及部分业务表。测试账号：
+
+```text
+admin   / 123456  团队管理员
+content / 123456  内容运营人员
+teacher / 123456  教育咨询老师
+ip      / 123456  个人 IP 运营者
+student / 123456  学员用户
+```
+
+### 4. Weaviate 向量数据库
+
+默认配置：
+
+```yaml
+flowmind:
+  weaviate:
+    enabled: true
+    base-url: http://localhost:18080
+```
+
+如果 Weaviate 可用，知识库会优先走向量检索；如果不可用，当前实现会尽量回退到 MySQL 检索，保证智能体仍能回答基础问题。
+
+### 5. 飞书 CLI
+
+真实飞书能力依赖本机 `lark-cli`：
+
+```powershell
+lark-cli --version
+```
+
+飞书授权、共享文件夹、文档创建等说明见：
+
+```text
+backend/README.md
+docs/README-team-capability-extension.md
+```
+
+### 6. 小红书 MCP
+
+小红书 MCP 位于：
+
+```text
+backend/ai-agent-service/integrations/xiaohongshu-mcp
+```
+
+后端启动时会根据配置尝试自动启动：
+
+```yaml
+flowmind:
+  tools:
+    xiaohongshu-mcp:
+      enabled: true
+      agent-enabled: true
+      auto-start: true
+      port: 18060
+      mock-fallback: true
+```
+
+注意：
+
+- 需要 Go 1.24。
+- 需要可用的 Chrome / Chromium 环境。
+- Windows 下若遇到 Chrome `Crashpad`、`leakless.exe`、权限拒绝等问题，小红书能力会回退到 mock 热点结构，不影响后端主体启动。
+- 小红书登录与排错详见 [README-xiaohongshu-mcp-adapter.md](docs/README-xiaohongshu-mcp-adapter.md)。
+
+## 快速启动
+
+### 1. 启动后端
 
 ```powershell
 cd "H:\Babycode\FlowMind Agent\flowmind-agent\backend"
 .\mvnw.cmd -s maven-settings.xml -pl app-service -am spring-boot:run
 ```
 
-前端：
+后端默认地址：
+
+```text
+http://localhost:8080
+```
+
+Swagger：
+
+```text
+http://localhost:8080/swagger-ui.html
+```
+
+如果 8080 被占用：
+
+```powershell
+.\mvnw.cmd -s maven-settings.xml -pl app-service -am spring-boot:run "-Dspring-boot.run.arguments=--server.port=18080"
+```
+
+### 2. 启动 Web 前端
 
 ```powershell
 cd "H:\Babycode\FlowMind Agent\flowmind-agent\frontend"
+npm install
 npm run dev
 ```
 
-如果用 DeepSeek API：
+前端默认通过 Vite 代理访问后端。如果使用内网穿透域名，需要在 `frontend/vite.config.ts` 中配置 `server.allowedHosts`。
+
+### 3. 启动桌面端
 
 ```powershell
-cd "H:\Babycode\FlowMind Agent\flowmind-agent\backend"
-.\mvnw.cmd -s maven-settings.xml -pl app-service -am spring-boot:run "-Dspring-boot.run.arguments=--spring.profiles.active=deepseek"
+cd "H:\Babycode\FlowMind Agent\flowmind-agent\desktop_fronted"
+.\start_desktop.ps1
 ```
 
----
+桌面端通过 HTTP/SSE 复用后端接口，不直接读取数据库或配置文件。
 
-## 十一、当前已知关键配置
+### 4. 构建 Android App
 
-### 飞书知识库
+```powershell
+cd "H:\Babycode\FlowMind Agent\flowmind-agent\app"
+$env:ANDROID_HOME='C:\Users\Lenovo\AppData\Local\Android\Sdk'
+.\gradlew.bat assembleDebug
+```
+
+APK 输出位置通常为：
 
 ```text
-名称：保研知识库
-Folder Token：KELsfW0jvlHcVqdiuTncQ66Lnnc
-URL：https://ycn1ft0idflw.feishu.cn/drive/folder/KELsfW0jvlHcVqdiuTncQ66Lnnc
+app/mobile/build/outputs/apk/debug/mobile-debug.apk
 ```
 
-### 飞书 CLI
+移动端默认也走后端 HTTP/SSE 接口，可在 App 设置页修改后端地址。
 
-验证：
+## 代码结构
+
+```text
+flowmind-agent/
+  backend/                 Spring Boot 多模块后端
+    app-service/           聚合启动入口，启动整个 Demo 后端
+    ai-agent-service/      总智能体、Agent Router、LLM 客户端、MCP/Skill 扩展
+    knowledge-service/     知识库、飞书同步、Weaviate 向量检索
+    content-service/       内容选题、文案、日历、SOP
+    user-service/          登录、用户、角色、权限
+    student-service/       学员画像和申请进度
+    school-service/        院校情报和项目推荐
+    feishu-service/        飞书同步和文档能力
+    common-core/           通用响应、ID 等基础工具
+    common-security/       Token 与 RBAC 权限拦截
+    common-web/            Web 通用配置
+    sql/                   数据库建表和 mock 数据
+  frontend/                Vue 3  Vite  Element Plus Web 前端
+  app/                     原生 Android 移动端
+  desktop_fronted/         Python 桌面端
+  docs/                    需求、设计、接口、扩展说明文档
+  scripts/                 辅助脚本
+  third_party/             第三方源码暂存区
+  count-lines.ps1          代码行数统计脚本
+```
+
+后端模块关系可以参考：
+
+![包图](docs/readme-assets/image3.png)
+
+数据库核心模型可以参考：
+
+![数据库模型](docs/readme-assets/image4.png)
+
+## 关键配置位置
+
+```text
+backend/app-service/src/main/resources/application.yml
+backend/app-service/src/main/resources/application-local.yml
+backend/app-service/src/main/resources/application-local.template.yml
+frontend/vite.config.ts
+app/mobile/build.gradle
+desktop_fronted/README.md
+```
+
+建议：
+
+- 通用默认配置放 `application.yml`。
+- 私有 API Key、个人本地端口、临时凭证放 `application-local.yml`。
+- 不要提交 `.runtime/`、`.gocache/`、`application-local.yml`、`application-secret.yml`。
+
+## 详细文档在哪里
+
+- 后端启动与常见问题：[backend/README.md](backend/README.md)
+- Web 前端说明：[frontend/README.md](frontend/README.md)
+- Android App 说明：[app/README.md](app/README.md)
+- 桌面端说明：[desktop_fronted/README.md](desktop_fronted/README.md)
+- 桌面/移动端可复用 API：[docs/API-for-desktop-client.md](docs/API-for-desktop-client.md)
+- 团队成员扩展能力说明：[docs/README-team-capability-extension.md](docs/README-team-capability-extension.md)
+- 向量检索扩展示例：[docs/README-vector-search-extension.md](docs/README-vector-search-extension.md)
+- 小红书 MCP 适配说明：[docs/README-xiaohongshu-mcp-adapter.md](docs/README-xiaohongshu-mcp-adapter.md)
+- 架构设计补充：[docs/architecture.md](docs/architecture.md)
+- 数据库设计：[docs/database-design.md](docs/database-design.md)
+- 内容 SOP：[docs/content-sop.md](docs/content-sop.md)
+- 系统需求/设计文档提交版：[docs/submission/](docs/submission/)
+
+## 常见问题
+
+### 为什么回答像固定模板？
+
+通常是没有配置真实大模型 API Key，系统回退到了 `MockLLMClient`。请检查 `application-local.yml` 或环境变量 `FLOWMIND_LLM_API_KEY`。
+
+### 为什么 Maven 提示找不到 main class？
+
+不要在后端父工程直接运行普通 `spring-boot:run`。请使用：
+
+```powershell
+.\mvnw.cmd -s maven-settings.xml -pl app-service -am spring-boot:run
+```
+
+### 为什么前端代理报 `ECONNREFUSED`？
+
+一般是后端没有启动，或后端端口不是 `8080`。先访问：
+
+```text
+http://localhost:8080/swagger-ui.html
+```
+
+确认后端可用。
+
+### 为什么小红书结果是 mock？
+
+真实小红书 MCP 启动失败、未登录、Chrome 环境不可用、接口超时都会触发 `mock-fallback`。这不会影响主系统运行，但返回的只是演示用热点结构，不是真实帖子。
+
+### 为什么飞书创建/读取失败？
+
+检查：
 
 ```powershell
 lark-cli --version
+lark-cli auth status
 ```
 
-如果本机有坏代理：
+如果缺少 scope，需要按 CLI 返回的 `missing_scopes` 重新授权。
 
-```powershell
-$env:LARK_CLI_NO_PROXY='1'
-```
+## 开发建议
 
-读取保研知识库文件夹的稳定命令：
-
-```powershell
-'{"folder_token":"KELsfW0jvlHcVqdiuTncQ66Lnnc","page_size":200}' | lark-cli drive files list --params - --format json --as user
-```
-
----
-
-## 十二、最容易踩的坑
-
-### 1. 只在提示词里写“可以调用工具”
-
-不够。必须有后端 Service 真正执行。
-
-正确做法：
+团队成员新增能力时，优先把能力写成解耦的扩展文件或服务文件，不要直接改散落在多个 Agent 中的核心逻辑。推荐阅读：
 
 ```text
-Agent -> ToolService -> 外部系统 -> 真实返回
+docs/README-team-capability-extension.md
+backend/app-service/src/main/java/com/flowmind/contrib/capability/README.md
 ```
 
-### 2. 意图判断优先级写错
-
-例如：
+当前项目的推荐扩展方式是：
 
 ```text
-在保研知识库中创建一个飞书文档
+新增能力文件 -> 注册为 Spring Bean -> 由总智能体/扩展注册表发现 -> 前端继续调用统一 AI 工作台
 ```
 
-如果先判断“保研知识库读取”，就会只列目录，不创建文档。
-
-正确顺序：
-
-```text
-创建 / 写入
-读取 / 列表
-搜索 / 查询
-普通回答
-```
-
-### 3. 让 LLM 编造工具结果
-
-禁止。飞书链接、token、数据库 ID 必须来自真实工具返回。
-
-### 4. PowerShell JSON 参数被转义破坏
-
-复杂 JSON 参数优先用 stdin：
-
-```powershell
-'{"folder_token":"xxx","page_size":200}' | lark-cli drive files list --params -
-```
-
-### 5. 飞书权限缺失
-
-缺 scope 时，先按 CLI 返回的 `missing_scopes` 授权，不要猜。
-
----
-
-## 十三、推荐的下一步架构升级
-
-现在项目已经能跑 Demo。后续如果继续扩展，建议优先做：
-
-1. `ToolCall` 统一协议  
-   用 Java DTO 表示工具调用，而不是在 Agent 里各写各的判断。
-
-2. `ToolRegistry`  
-   所有工具注册为 Spring Bean，例如 `create_feishu_doc`、`list_feishu_folder`、`search_knowledge_base`。
-
-3. 工具调用日志表  
-   记录每次工具调用：用户请求、工具名、参数、结果、耗时、是否成功。
-
-4. 前端工具结果卡片  
-   飞书文档返回时展示“打开文档”按钮，而不是只显示纯文本链接。
-
-5. 向量数据库接入  
-   `KnowledgeAgent` 从“列文件”升级到“读取文档 -> 切片 -> embedding -> 检索 -> 回答”。
-
+这样即使某个成员写的 Skill 或 MCP 暂时没有被主流程使用，也能保持低耦合、可测试、可逐步接入。
