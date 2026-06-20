@@ -79,24 +79,27 @@ doc.add_heading('摘  要', level=1)
 
 doc.add_paragraph(
     'FlowMind Agent 是一个面向内容运营、教育服务、个人 IP 运营和小型团队协作场景的 AI 智能体平台。'
-    '系统以网页端 AI 对话工作台作为统一入口，结合飞书生态中的文档、多维表格、任务协作和群机器人能力，'
+    '系统以 AI 对话工作台作为统一入口，同时提供 Web 前端、桌面客户端（Python/PySide6）和 Android 移动客户端三套界面，'
+    '结合飞书生态中的文档、多维表格、任务协作和群机器人能力，'
     '并结合本地业务数据库、向量数据库和大模型 API，实现内容选题生成、资料库整理、知识问答、学员信息管理、'
     '院校项目情报管理、数据可视化和任务协同。'
 )
 doc.add_paragraph(
     '本文档为 FlowMind Agent 的《系统设计文档》，面向课程结课设计提交。文档详细阐述了系统的技术选型、'
-    '总体架构设计、组件与模块结构、数据架构设计、服务协作与事务设计、认证鉴权与安全设计、高并发与性能设计、'
-    '日志监控与故障定位、部署与运维设计，以及若干技术关键点的详细解决方案。'
+    '总体架构设计、组件与模块结构（含三套客户端）、数据架构设计、服务协作与事务设计、认证鉴权与安全设计、高并发与性能设计、'
+    '日志监控与故障定位、部署与运维设计，以及 12 个技术关键点的详细解决方案。'
 )
 doc.add_paragraph(
-    '系统采用前后端分离架构：前端基于 Vue3 + TypeScript + Vite + Element Plus 构建，后端基于 Spring Boot 3.x '
-    '多模块 Maven 工程。Demo 阶段使用 app-service 聚合启动，同时保留清晰的微服务边界，后续可平滑拆分为独立微服务。'
+    '系统采用前后端分离架构：三套客户端（Web 基于 Vue3 + TypeScript + Vite + Element Plus；'
+    '桌面基于 Python/PySide6；移动基于 Android/Java）通过统一 REST/SSE API 访问同一套后端。'
+    '后端基于 Spring Boot 3.x 多模块 Maven 工程。Demo 阶段使用 app-service 聚合启动，同时保留清晰的微服务边界，后续可平滑拆分为独立微服务。'
     '数据存储采用 MySQL 作为业务事实源，Weaviate 作为向量检索引擎，Redis 和 MinIO 预留后续扩展。'
     'AI 智能体层通过 LLMClient 抽象、Agent Router 自动路由和 AgentExtension 工具扩展机制，实现了大模型厂商无关、'
     '工具能力解耦、AI 输出可追溯的设计目标。'
 )
 doc.add_paragraph(
-    '关键词：AI 智能体；飞书生态；内容运营；知识管理；向量检索；微服务架构；SSE 流式输出'
+    '关键词：AI 智能体；飞书生态；内容运营；知识管理；向量检索；微服务架构；SSE 流式输出；'
+    '桌面客户端；Android 移动端；PySide6'
 )
 
 doc.add_page_break()
@@ -187,14 +190,21 @@ def add_figure(title, caption, code, lang="Mermaid"):
 add_heading('1  技术选型', 1)
 
 # 1.1
-add_heading('1.1  前端技术选型', 2)
+add_heading('1.1  客户端技术选型', 2)
 
-add_para('FlowMind Agent 前端采用 Vue 3 + TypeScript + Vite + Element Plus 技术栈，构建面向内容运营人员的 AI 工作台与后台管理系统。', bold=True)
+add_para(
+    'FlowMind Agent 提供三套客户端界面，覆盖 Web 浏览器、桌面操作系统和 Android 移动设备三种使用场景。'
+    '三端通过统一的 REST/SSE API 访问同一套后端服务，共享全部业务逻辑和数据。'
+)
+add_para('Web 前端采用 Vue 3 + TypeScript + Vite + Element Plus 技术栈，构建面向内容运营人员的 AI 工作台与后台管理系统。'
+         '桌面客户端采用 Python/PySide6 + QSS 样式系统，高保真复刻 Web 端全部 10 个业务页面，并额外支持离线 Demo 模式和双渲染器兜底（Tkinter）。'
+         'Android 移动客户端采用原生 Java 开发（MainActivity + ApiClient），支持 SSE 流式对话和核心业务功能。',
+         bold=True)
 
-add_heading('1.1.1  已选技术及选型理由', 3)
+add_heading('1.1.1  Web 前端已选技术及选型理由', 3)
 
 add_table(
-    ['技术', '版本', '选型理由'],
+    ['技术', '版本/说明', '选型理由'],
     [
         ['Vue 3', '3.x',
          '渐进式框架，Composition API 便于组织复杂交互逻辑；响应式系统适合 AI 工作台的多状态管理场景；'
@@ -222,7 +232,7 @@ add_table(
     ]
 )
 
-add_heading('1.1.2  替代方案对比', 3)
+add_heading('1.1.2  Web 前端替代方案对比', 3)
 
 add_table(
     ['替代方案', '优势', '劣势', '本项目不采用的原因'],
@@ -243,6 +253,24 @@ add_table(
          '无框架依赖、包体积小',
          '开发效率低、复杂交互难以维护',
          'AI 工作台涉及多面板、多标签、实时流式展示等复杂交互，不适合原生开发'],
+    ]
+)
+
+add_heading('1.1.3  桌面与移动客户端技术选型', 3)
+
+add_table(
+    ['客户端', '技术栈', '选型理由'],
+    [
+        ['桌面客户端',
+         'Python + PySide6 + QSS 样式系统 + httpx；'
+         'Tkinter 作为兜底渲染器',
+         'PySide6 提供接近原生的现代 GUI 组件，QSS 支持与 Web CSS 类似的设计语言定义能力；'
+         'Python 生态丰富，适合快速原型开发；Tkinter 作为标准库无需额外安装，保证在任何 Python 环境都能运行核心功能'],
+        ['Android 移动客户端',
+         '原生 Android Java + OkHttp/HttpURLConnection；'
+         'Gradle 构建；APK 直接安装',
+         '原生开发保证启动速度和滑动流畅性；与 Web 端共享同一套后端 API 和 Token 认证；'
+         'ApiClient 封装 SSE 流式解析，移动端也能获得流式对话体验'],
     ]
 )
 
