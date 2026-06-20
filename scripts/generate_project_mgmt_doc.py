@@ -276,12 +276,13 @@ add_para('前端目录结构（frontend/src/）：', bold=True)
 add_table(
     ['目录', '职责'],
     [
-        ['api/', 'API 客户端封装（fetch + SSE EventSource）'],
-        ['components/', '可复用 Vue 组件'],
+        ['api/', 'API 客户端封装（agent.ts / client.ts / content.ts / knowledge.ts / knowledge-sync.ts / mock.ts / safe-request.ts，共 7 个模块）'],
+        ['components/', '可复用 Vue 组件（AgentChat / ChatMessage / SessionList / AgentSidebar / ContextPanel / ContentCard / ContentSopPanel / StarRating / StatCard / ChartCard / SchoolProjectCard / StudentTable / PermissionGate / SafetyDiagnosticsPanel / SafeStateView / CapabilityParityPanel / OperationChecklist / ResponsiveDataPanel / ConversationHistory / AgentTabs，共 20 个）'],
         ['layouts/', '布局组件（MainLayout.vue）'],
-        ['router/', 'Vue Router 路由配置与守卫'],
-        ['stores/', 'Pinia 状态管理（auth、sessions 等）'],
-        ['views/', '页面视图组件'],
+        ['router/', 'Vue Router 路由配置与守卫（含权限判断 beforeEach）'],
+        ['stores/', 'Pinia 状态管理（auth.ts，含用户信息、Token、角色权限）'],
+        ['utils/', '工具库（datetime.ts / feature-parity.ts / form-safety.ts / guardrails.ts / markdown.ts / page-safety-blueprints.ts，共 6 个安全与功能工具）'],
+        ['views/', '页面视图组件（LoginView / DashboardView / AgentWorkspaceView / ContentView / KnowledgeView / StudentsView / SchoolsView / AnalyticsView / FeishuView / SettingsView，共 10 个业务页面）'],
         ['assets/', '静态资源'],
     ]
 )
@@ -290,23 +291,32 @@ add_para('其他重要目录：', bold=True)
 add_table(
     ['目录', '说明'],
     [
-        ['docs/', '项目文档：需求文档、设计文档、API 文档、架构图等'],
+        ['app/', 'Android 移动客户端（Java 原生，含 MainActivity + ApiClient + Gradle 构建系统）'],
+        ['desktop_fronted/', '桌面客户端（Python/PySide6，高保真复刻 Web 端全部 10 个页面，含离线 Mock 模式）'],
+        ['docs/', '项目文档：需求文档、设计文档、API 文档、架构图、提示词等'],
         ['docs/submission/', '课程提交文档：系统需求文档、系统设计文档、项目管理文档'],
-        ['desktop_fronted/', '桌面客户端（Python）'],
-        ['backend/sql/', '数据库初始化脚本（schema.sql + mock-data.sql）'],
-        ['scripts/', '辅助脚本'],
-        ['.gitignore', 'Git 忽略规则（含 Python .venv、__pycache__、Node modules 等）'],
+        ['backend/sql/', '数据库初始化脚本（schema.sql 19 张表 + mock-data.sql 示例数据）'],
+        ['scripts/', '辅助脚本（含系统设计文档和项目管理文档的自动生成脚本）'],
+        ['.gitignore', 'Git 忽略规则（含 Python .venv、__pycache__、Node modules、Maven target、application-local.yml 等）'],
     ]
 )
 
 add_heading('3.3  扩展能力开发规范', 2)
-add_para('为了降低多人协作时的代码冲突，项目设计了 contrib/capability 扩展缓冲区机制：')
-add_para('① 当成员需要开发新的工具能力（如新的 MCP 工具、新的 Skill、新的向量检索扩展）时，'
-         '优先在 backend/app-service/src/main/java/com/flowmind/contrib/capability/ 包下创建独立的能力类。')
-add_para('② 新能力实现 AgentExtension 接口，通过 Spring Bean 注册后即可被 Agent Router 自动发现。')
-add_para('③ 能力稳定并通过测试后，由组长将其迁移到正式的 ai-agent-service 模块中的 extension 包。')
-add_para('④ 这种方式确保：主流程代码（AgentRouter、BaseAgent、LLMClient）不被频繁修改，'
-         '降低合并冲突概率；每个成员可以独立开发、测试自己的扩展能力。')
+add_para('为了降低多人协作时的代码冲突，项目设计了 contrib/capability 扩展缓冲区机制。'
+         '当前仓库中已落地的扩展能力包括：')
+add_para('① VectorSearchRuntimeExtension：位于 backend/app-service/src/main/java/com/flowmind/contrib/capability/vectorsearch/，'
+         '实现 AgentExtension 接口，提供向量检索的运行时上下文注入。该扩展在 ai-agent-service 的 DefaultAgentExtensions 中被自动发现和注册。')
+add_para('② 新增扩展能力的标准流程：在 contrib/capability 包下创建独立的能力类 → 实现 AgentExtension 接口（name / type / description / supports / runtimeContext 五个方法）'
+         '→ 注册为 Spring @Component → Agent Router 和 DefaultAgentExtensions 自动发现并加载。')
+add_para('③ 能力稳定并通过测试后，由组长将其迁移到正式的 ai-agent-service/src/main/java/com/flowmind/agent/extension/ 包。'
+         '当前该包下已包含：AgentExtension（接口）、McpToolProvider、SkillProvider、LarkCliMcpExtension、'
+         'SemanticVectorSearchExtension、RuntimeToolExtensions、DefaultAgentExtensions 共 7 个扩展组件。')
+add_para('④ 类似地，桌面客户端（desktop_fronted/）和 Android 移动客户端（app/）虽然不在 contrib 包中，'
+         '但同样遵循"独立目录开发、通过统一 API 与后端交互、不修改后端主流程"的隔离原则，'
+         '使得前端、桌面、移动三端的开发可以完全并行，互不阻塞。')
+add_para('⑤ 这种多层次隔离机制确保：主流程代码（AgentRouter、BaseAgent、LLMClient）不被频繁修改，'
+         '降低合并冲突概率；每个成员可以独立开发、测试自己的扩展能力；'
+         '新增一个 MCP 工具或 Skill 不需要修改任何已有 Agent 的代码。')
 
 add_heading('3.4  沟通与协作工具', 2)
 add_table(
