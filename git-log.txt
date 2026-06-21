@@ -1,0 +1,37 @@
+e53fc3f	2026-06-20	更新系统需求文档
+ba9f02c	2026-06-20	Add files via upload
+6acce98	2026-06-20	更新README文档
+643270e	2026-06-20	Merge branch 'main' of https://github.com/0225pang/FlowMind-Agent
+176bbc9	2026-06-20	增加后端的Mysql和weaviate运行截图
+9ce00c5	2026-06-20	恢复项目管理文档
+af303bc	2026-06-20	Merge branch 'main' of https://github.com/0225pang/FlowMind-Agent
+0bdfbd1	2026-06-20	增加软件运行截图
+05de6a9	2026-06-20	更新项目管理文档§3.2目录表：新增utils/和app/目录
+567fe77	2026-06-20	Merge branch 'main' of https://github.com/0225pang/FlowMind-Agent
+e167301	2026-06-20	回退项目管理文档到排版前版本
+8cdeb4b	2026-06-20	更新项目管理文档§3.2-3.3：反映当前仓库实际代码结构
+c9bd90e	2026-06-20	更新提交文档
+1b8ed9e	2026-06-20	Merge branch 'main' of https://github.com/0225pang/FlowMind-Agent
+2e7cdf9	2026-06-20	修复小红书MCP的搜索和登录问题
+ec7d29d	2026-06-20	将三份提交文档所有标题统一改为黑体
+a20bc55	2026-06-20	系统设计文档：摘要和第1章中统一体现三套客户端
+186631e	2026-06-20	系统设计文档：架构概述和架构图中统一呈现三套客户端
+ee49af1	2026-06-20	更新系统设计文档：补充移动端、桌面端、真实代码量等遗漏内容
+4ef3098	2026-06-20	完善桌面客户端细节功能与视觉效果
+26f970a	2026-06-20	更新系统设计文档与项目管理文档，新增桌面客户端工具脚本
+f229409	2026-06-20	集成小红书MCP
+171f9fa	2026-06-20	清理临时测试文件 tmp-stream-test.json
+4a9c95f	2026-06-20	添加小红书SOP能力调用
+988ebb7	2026-06-19	完善手机端APP；增加防呆设计；增加测试代码
+9513089	2026-06-19	更新.gitignore：新增Python虚拟环境和缓存忽略规则
+2456c92	2026-06-19	添加桌面客户端前端和项目提交文档
+a9fd5ac	2026-06-19	添加用户管理系统和鉴权机制，简单实现手机APP
+da0f7be	2026-06-18	编写后端API文档
+3903d9b	2026-06-18	修复Deepseek的APIkey泄露bug
+4864baf	2026-06-17	显示模型思考过程，不过显示格式待优化
+44e709c	2026-06-17	AI工作台改为响应式、显示智能体的工具调用过程
+ec946f3	2026-06-17	完善智能体对向量知识库查询能力的调用
+8d8d75e	2026-06-17	添加小组协作文档
+cd7a48a	2026-06-17	添加智能体向量知识库查询的能力
+c069b08	2026-06-17	添加飞书同步后，自动构建向量数据库的功能
+cdec4d4	2026-06-16	Initial commit: FlowMind Agent — AI workbench with Feishu sync, knowledge base, content SOP
